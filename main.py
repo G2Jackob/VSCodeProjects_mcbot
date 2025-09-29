@@ -11,9 +11,9 @@ from bot import McBot, BotState
 
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
-wincap = WindowCapture('Minecraft 1.21.8 - Singleplayer')       #Name of the window to capture
+wincap = WindowCapture('Minecraft 1.21.8 - Singleplayer') #Name of the window to capture
 
-DEBUG = True
+DEBUG = False
 #vision_wood.init_control_gui()
 
 #hsv_filter = HsvFilter(14,181,0,24,227,255, 78, 0, 0, 0)
@@ -24,7 +24,7 @@ bot = McBot((wincap.offset_x, wincap.offset_y), (wincap.w, wincap.h))
 
 wincap.start()
 detector.start()
-bot.start()
+#bot.start()
 
 BOT_STATE_NAMES = {
     0: "INITIALIZING",
@@ -47,7 +47,6 @@ while True:
     if DEBUG:
         # Draw rectangles
         output_image = vision_wood.draw_rectangles(wincap.screenshot, detector.rectangles)
-        # Add bot state text (use readable name)
         state_text = f"Bot State: {BOT_STATE_NAMES.get(bot.state, str(bot.state))}"
         cv.putText(
             output_image,
@@ -59,7 +58,9 @@ while True:
             2,         # Thickness
             cv.LINE_AA
         )
-        cv.imshow('Matches', output_image)
+        #cv.imshow('Matches', output_image)
+    cv.imshow('Unprocessed', wincap.screenshot)
+
 
     if bot.state == BotState.INITIALIZING:
         targets = vision_wood.get_click_points(detector.rectangles)
@@ -79,7 +80,8 @@ while True:
     elif bot.state == BotState.MINING:
         bot.update_screenshot(wincap.screenshot)
 
-    #cv.imshow('Unprocessed', screenshot)
+
+
     print('FPS: {}'.format(1/(time() - loop_time + 0.0001)))
     loop_time = time()
 

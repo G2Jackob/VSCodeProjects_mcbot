@@ -195,11 +195,9 @@ class McBot:
         print("[DEBUG] Moving to target")
         initial_pos = self.targets
         
-        # Walk forward for a longer duration
         print("[DEBUG] Walking forward")
         pydirectinput.keyDown('w')
         sleep(1.0)
-        # Check if we're stuck
         if self.check_if_stuck():
             print("[DEBUG] Stuck, attempting to jump")
             pydirectinput.press('space')
@@ -207,7 +205,6 @@ class McBot:
         
         pydirectinput.keyUp('w')
         
-        # Ensure we've actually moved
         return self.targets != initial_pos
 
     def check_if_stuck(self):

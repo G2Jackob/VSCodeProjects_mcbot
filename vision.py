@@ -152,3 +152,23 @@ class Vision:
             c[c <= lim] = 0
             c[c > lim] -= ammount
         return c
+
+    def find_trees_hsv(self, screenshot):
+        """Find trees using HSV color filtering"""
+        hsv = cv.cvtColor(screenshot, cv.COLOR_BGR2HSV)
+        
+        # Tree bark color range
+        lower = np.array([16, 20, 20])
+        upper = np.array([20, 255, 200])
+        
+        mask = cv.inRange(hsv, lower, upper)
+        contours, _ = cv.findContours(mask, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+        
+        tree_positions = []
+        for contour in contours:
+            area = cv.contourArea(contour)
+            if area > 30000:
+                x, y, w, h = cv.boundingRect(contour)
+                tree_positions.append((x + w//2, y + h//2))
+        
+        return tree_positions
