@@ -11,8 +11,7 @@ from bot import McBot, BotState
 
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
-
-wincap = WindowCapture('Minecraft 1.21.8 - Singleplayer')
+wincap = WindowCapture('Minecraft 1.21.8 - Singleplayer')       #Name of the window to capture
 
 DEBUG = True
 #vision_wood.init_control_gui()
@@ -20,15 +19,19 @@ DEBUG = True
 #hsv_filter = HsvFilter(14,181,0,24,227,255, 78, 0, 0, 0)
 
 detector = Detection('cascade/cascade.xml')
-
 vision_wood = Vision(None)
-
-
 bot = McBot((wincap.offset_x, wincap.offset_y), (wincap.w, wincap.h))
 
 wincap.start()
 detector.start()
 bot.start()
+
+BOT_STATE_NAMES = {
+    0: "INITIALIZING",
+    1: "SEARCHING",
+    2: "MOVING",
+    3: "MINING"
+}
 
 loop_time = time()
 while True:
@@ -42,21 +45,39 @@ while True:
     detector.update(wincap.screenshot)
 
     if DEBUG:
+        # Draw rectangles
         output_image = vision_wood.draw_rectangles(wincap.screenshot, detector.rectangles)
+        # Add bot state text (use readable name)
+        state_text = f"Bot State: {BOT_STATE_NAMES.get(bot.state, str(bot.state))}"
+        cv.putText(
+            output_image,
+            state_text,
+            (10, 30),  # Position (x, y)
+            cv.FONT_HERSHEY_SIMPLEX,
+            1,         # Font scale
+            (0, 255, 255),  # Color (BGR): Yellow
+            2,         # Thickness
+            cv.LINE_AA
+        )
         cv.imshow('Matches', output_image)
 
     if bot.state == BotState.INITIALIZING:
         targets = vision_wood.get_click_points(detector.rectangles)
         bot.update_targets(targets)
         bot.update_screenshot(wincap.screenshot)
+
+    elif bot.state == BotState.MOVING:
+        targets = vision_wood.get_click_points(detector.rectangles)
+        bot.update_targets(targets)
+        bot.update_screenshot(wincap.screenshot)
+
     elif bot.state == BotState.SEARCHING:
         targets = vision_wood.get_click_points(detector.rectangles)
         bot.update_targets(targets)
         bot.update_screenshot(wincap.screenshot)
-    elif bot.state == BotState.MOVING:
-        bot.update_screenshot(wincap.screenshot)
+
     elif bot.state == BotState.MINING:
-        pass
+        bot.update_screenshot(wincap.screenshot)
 
     #cv.imshow('Unprocessed', screenshot)
     print('FPS: {}'.format(1/(time() - loop_time + 0.0001)))
