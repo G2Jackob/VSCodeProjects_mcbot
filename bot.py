@@ -39,15 +39,7 @@ class McBot:
 
         self.wood_tooltip = cv.imread('wood_tooltip.jpg', cv.IMREAD_UNCHANGED)
         
-    
 
-    def confirm_tooltip(self, target_position):
-        result = cv.matchTemplate(self.screenshot, self.wood_tooltip, cv.TM_CCOEFF_NORMED)
-
-        min_val, max_val, min_loc, max_loc = cv.minMaxLoc(result)
-        if max_val >= self.TOOLTIP_MATCH_THRESHOLD:
-            return True
-        return False
 
 
     def click_next_target(self):
@@ -62,7 +54,7 @@ class McBot:
                 
                 return True
             
-            pydirectinput.press('F3')  # Hide tooltip if not confirmed
+            pydirectinput.press('F3') 
             sleep(0.2)
         return False
 
@@ -80,21 +72,6 @@ class McBot:
             return True
         self.movement_screenshot = self.screenshot.copy()
         return False
-
-
-    def targets_ordered_by_distance(self, targets):
-        center_x = self.window_w // 2
-        center_y = self.window_h // 2
-
-        def distance_to_target(target):
-            dx = target[0] - center_x
-            dy = target[1] - center_y
-            return (dx ** 2 + dy ** 2) ** 0.5
-
-        # Only sort if targets is not empty
-        if targets:
-            targets = sorted(targets, key=distance_to_target)
-        return targets
 
     def get_screen_position(self, pos):
         return (pos[0] + self.offset_x, pos[1] + self.offset_y)
@@ -128,33 +105,33 @@ class McBot:
 
             elif self.state == BotState.SEARCHING:
                 if self.move_crosshair_to_target():
-                    print("[DEBUG] Aligned with target, checking with F3")
-                    pydirectinput.press('F3')
-                    sleep(0.5)
-                    
-                    if self.confirm_tooltip((self.window_w // 2, self.window_h // 2)):
-                        print("[DEBUG] Wood confirmed, starting to mine")
-                        pydirectinput.press('F3')
-                        sleep(0.2)
-                        self.lock.acquire()
-                        self.state = BotState.MINING
-                        self.lock.release()
-                    else:
-                        print("[DEBUG] Not wood, continuing search")
-                        pydirectinput.press('F3')
-                        sleep(0.2)
+                    #pydirectinput.press('F3')
+                    sleep(0.2)    
+                    self.lock.acquire()
+                    self.state = BotState.MOVING
+                    self.lock.release()
+                    #pydirectinput.press('F3')
+                    sleep(0.2)
 
             elif self.state == BotState.MINING:
                 if self.mine_tree():
-                    print("[DEBUG] Mining complete, searching for next target")
                     self.lock.acquire()
                     self.state = BotState.SEARCHING
                     self.lock.release()
-
+            elif self.state == BotState.MOVING:
+                if self.move_to_target():
+                    print("[DEBUG] Reached target, starting mining")
+                    self.lock.acquire()
+                    self.state = BotState.MINING
+                    self.lock.release()
+                elif self.have_stopped_moving():
+                    print("[DEBUG] Movement stopped, re-evaluating")
+                    self.lock.acquire()
+                    self.state = BotState.SEARCHING
+                    self.lock.release()
             sleep(0.1)
 
     def move_crosshair_to_target(self):
-        """Align crosshair with target using controlled mouse movement"""
         targets = self.targets_ordered_by_distance(self.targets)
         print(f"[DEBUG] Moving crosshair. Targets found: {len(targets)}")
         
@@ -167,24 +144,33 @@ class McBot:
         dx = target_pos[0] - center_x
         dy = target_pos[1] - center_y
         
-        # Much higher sensitivity for faster movement
-        sensitivity = 0.5
-        print(f"[DEBUG] Moving mouse by: dx={dx}, dy={dy}")
         
-        # Move X axis (larger movement)
+        # Increase sensitivity for more noticeable movement
+        sensitivity = 1.0
+        
         move_x = int(dx * sensitivity)
-        if abs(move_x) > 0:
-            pydirectinput.moveRel(move_x, 0, relative=True)
-            sleep(0.1)
-        
-        # Move Y axis (larger movement)
         move_y = int(dy * sensitivity)
-        if abs(move_y) > 0:
-            pydirectinput.moveRel(0, move_y, relative=True)
+        
+        if abs(move_x) > 0 or abs(move_y) > 0:
+            print(f"[DEBUG] Moving mouse by: ({move_x}, {move_y})")
+            pydirectinput.moveRel(move_x, move_y, relative=True)
             sleep(0.1)
         
-        # Return True if we're close enough to target
         return abs(dx) < 10 and abs(dy) < 10
+
+    def targets_ordered_by_distance(self, targets):
+            center_x = self.window_w // 2
+            center_y = self.window_h // 2
+
+            def distance_to_target(target):
+                dx = target[0] - center_x
+                dy = target[1] - center_y
+                return (dx ** 2 + dy ** 2) ** 0.5
+
+            if targets:
+                targets = sorted(targets, key=distance_to_target)
+            return targets
+
 
     def move_to_target(self):
         """Move forward to target"""
@@ -196,14 +182,14 @@ class McBot:
         initial_pos = self.targets
         
         print("[DEBUG] Walking forward")
-        pydirectinput.keyDown('w')
-        sleep(1.0)
+        pyautogui.keyDown('w')
+        sleep(0.5)
         if self.check_if_stuck():
             print("[DEBUG] Stuck, attempting to jump")
-            pydirectinput.press('space')
+            pyautogui.press('space')
             sleep(1.0)
         
-        pydirectinput.keyUp('w')
+        pyautogui.keyUp('w')
         
         return self.targets != initial_pos
 
@@ -215,7 +201,6 @@ class McBot:
         return initial_targets == current_targets
 
     def mine_tree(self):
-        """Simple mining sequence - just mine once"""
         print("[DEBUG] Starting mining sequence")
         
         # Single mining action
@@ -224,13 +209,6 @@ class McBot:
         pydirectinput.mouseUp()
         sleep(0.5)
         
-        # Random strafe after mining to avoid getting stuck
-        if random.randint(0, 1):
-            pydirectinput.keyDown('d')
-        else:
-            pydirectinput.keyDown('a')
-        sleep(0.5)
-        pydirectinput.keyUp('a')
-        pydirectinput.keyUp('d')
+        
         
         return True

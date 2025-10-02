@@ -1,7 +1,7 @@
 import cv2 as cv
 import numpy as np
 import os
-from time import time
+from time import time, sleep
 from windowcapture import WindowCapture
 from vision import Vision
 from detection import Detection
@@ -11,20 +11,21 @@ from bot import McBot, BotState
 
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
-wincap = WindowCapture('Minecraft 1.21.8 - Singleplayer') #Name of the window to capture
+wincap = WindowCapture('Minecraft 1.21.9 - Singleplayer') #Name of the window to capture
 
-DEBUG = False
+DEBUG = True
 #vision_wood.init_control_gui()
 
 #hsv_filter = HsvFilter(14,181,0,24,227,255, 78, 0, 0, 0)
 
-detector = Detection('cascade/cascade.xml')
+detector = Detection('tree_detect_yolo.pt')
 vision_wood = Vision(None)
+vision_wood.set_screen_center(wincap.w // 2, wincap.h // 2)
 bot = McBot((wincap.offset_x, wincap.offset_y), (wincap.w, wincap.h))
 
 wincap.start()
 detector.start()
-#bot.start()
+bot.start()
 
 BOT_STATE_NAMES = {
     0: "INITIALIZING",
@@ -34,54 +35,51 @@ BOT_STATE_NAMES = {
 }
 
 loop_time = time()
+frame_count = 0
+
 while True:
+    if not wincap.is_running():
+        break
 
-    if wincap.screenshot is None:
+    if not detector.is_running():
+        break
+       
+    screenshot = None
+    for _ in range(10):
+        if wincap.screenshot is not None:
+            screenshot = wincap.screenshot.copy()
+            break
+        sleep(0.1)
+            
+    if screenshot is None:
         continue
-    
-
-   # processed_image = vision_wood.apply_hsv_filter(screenshot, hsv_filter)
-
-    detector.update(wincap.screenshot)
+    detector.update(screenshot)
+        
 
     if DEBUG:
-        # Draw rectangles
-        output_image = vision_wood.draw_rectangles(wincap.screenshot, detector.rectangles)
-        state_text = f"Bot State: {BOT_STATE_NAMES.get(bot.state, str(bot.state))}"
-        cv.putText(
-            output_image,
-            state_text,
-            (10, 30),  # Position (x, y)
-            cv.FONT_HERSHEY_SIMPLEX,
-            1,         # Font scale
-            (0, 255, 255),  # Color (BGR): Yellow
-            2,         # Thickness
-            cv.LINE_AA
-        )
-        #cv.imshow('Matches', output_image)
-    cv.imshow('Unprocessed', wincap.screenshot)
-
-
-    if bot.state == BotState.INITIALIZING:
-        targets = vision_wood.get_click_points(detector.rectangles)
-        bot.update_targets(targets)
-        bot.update_screenshot(wincap.screenshot)
-
-    elif bot.state == BotState.MOVING:
-        targets = vision_wood.get_click_points(detector.rectangles)
-        bot.update_targets(targets)
-        bot.update_screenshot(wincap.screenshot)
-
-    elif bot.state == BotState.SEARCHING:
-        targets = vision_wood.get_click_points(detector.rectangles)
-        bot.update_targets(targets)
-        bot.update_screenshot(wincap.screenshot)
-
-    elif bot.state == BotState.MINING:
-        bot.update_screenshot(wincap.screenshot)
-
-
-
+        if detector.debug_image is not None and detector.results is not None:
+            try:
+                debug_image = detector.debug_image.copy()
+                state_text = f"Bot State: {BOT_STATE_NAMES.get(bot.state, str(bot.state))}"
+                cv.putText(
+                    debug_image,
+                    state_text,
+                    (10, 30),
+                    cv.FONT_HERSHEY_SIMPLEX,
+                    1,
+                    (0, 255, 255),
+                    2,
+                    cv.LINE_AA
+                )
+                targets = vision_wood.get_click_points(detector.results)
+                bot.update_targets(targets)
+                bot.update_screenshot(screenshot)
+                
+                # Show debug info
+                cv.imshow('Minecraft Bot', debug_image)
+                print(f"[DEBUG] Found targets: {len(targets)}")
+            except Exception as e:
+                print(f"[DEBUG] Display error: {str(e)}")
     print('FPS: {}'.format(1/(time() - loop_time + 0.0001)))
     loop_time = time()
 
@@ -96,5 +94,12 @@ while True:
        cv.imwrite('positive/{}.jpg'.format(loop_time), wincap.screenshot)
     elif key == ord('d'):
         cv.imwrite('negative/{}.jpg'.format(loop_time), wincap.screenshot)
+
+    
+
+wincap.stop()
+detector.stop()
+bot.stop()
+cv.destroyAllWindows()
 
 print("Done")

@@ -14,4 +14,4 @@ gen_negative_description_file()
 
 
 #Current Model:
-#C:\Users\papil\Desktop\eeeeeeeJ\opencv\build\x64\vc15\bin\opencv_traincascade.exe -data cascade/ -vec pos.vec -bg neg.txt -w 24 -h 24 -precalcValBufSize 6000 -precalcIdxBufSize 6000 -numPos 120 -numNeg 1000 -numStages 12 -maxFalseAlarmRate 0.4 -minHitRate 0.999
+#C:\Users\papil\Desktop\eeeeeeeJ\opencv\build\x64\vc15\bin\opencv_traincascade.exe -data cascade/ -vec pos.vec -bg neg.txt -w 24 -h 24 -precalcValBufSize 6000 -precalcIdxBufSize 6000 -numPos 350 -numNeg 500 -numStages 15 -maxFalseAlarmRate 0.3 -minHitRate 0.999 -acceptanceRatioBreakValue 10e-6 -weightTrimRate 0.95

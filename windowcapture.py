@@ -85,3 +85,6 @@ class WindowCapture:
            self.lock.acquire()
            self.screenshot = screenshot
            self.lock.release()
+    
+    def is_running(self):
+        return not self.stopped

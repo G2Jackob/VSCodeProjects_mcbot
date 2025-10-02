@@ -1,0 +1,2 @@
+ordering by size, then by distance, is just distance, needs fix
+fix walking allways before mineing
