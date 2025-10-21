@@ -132,7 +132,7 @@ class McBot:
             sleep(0.1)
 
     def move_crosshair_to_target(self):
-        targets = self.targets_ordered_by_distance(self.targets)
+        targets = self.targets
         print(f"[DEBUG] Moving crosshair. Targets found: {len(targets)}")
         
         if not targets:
@@ -174,7 +174,7 @@ class McBot:
 
     def move_to_target(self):
         """Move forward to target"""
-        targets = self.targets_ordered_by_distance(self.targets)
+        targets = self.targets
         if not targets:
             return False
         
