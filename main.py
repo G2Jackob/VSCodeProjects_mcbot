@@ -69,6 +69,33 @@ while True:
                     2,
                     cv.LINE_AA
                 )
+                
+                # Display player coordinates
+                player_coords_text = f"Player Block: {bot.player_coords if bot.player_coords else 'N/A'}"
+                cv.putText(
+                    debug_image,
+                    player_coords_text,
+                    (10, 70),
+                    cv.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 255, 0),
+                    2,
+                    cv.LINE_AA
+                )
+                
+                # Display targeted block coordinates
+                target_coords_text = f"Targeted Block: {bot.target_block_coords if bot.target_block_coords else 'N/A'}"
+                cv.putText(
+                    debug_image,
+                    target_coords_text,
+                    (10, 110),
+                    cv.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (255, 0, 255),
+                    2,
+                    cv.LINE_AA
+                )
+                
                 targets = vision_wood.get_click_points(detector.results)
                 bot.update_targets(targets)
                 bot.update_screenshot(screenshot)

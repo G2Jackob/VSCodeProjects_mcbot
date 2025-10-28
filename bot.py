@@ -4,6 +4,8 @@ import pydirectinput
 from time import sleep, time
 from threading import Thread, Lock
 import random
+import pytesseract
+import re
 
 class BotState:
     INITIALIZING = 0
@@ -29,6 +31,8 @@ class McBot:
     window_w = 0
     window_h = 0
     wood_tooltip = None
+    player_coords = None
+    target_block_coords = None
 
     def __init__(self, window_offset, window_size):
         self.lock = Lock()
@@ -36,9 +40,53 @@ class McBot:
         self.window_w, self.window_h = window_size
         self.state = BotState.INITIALIZING
         self.timestamp = time()
+        self.player_coords = None
+        self.target_block_coords = None
 
         self.wood_tooltip = cv.imread('wood_tooltip.jpg', cv.IMREAD_UNCHANGED)
         
+    def read_f3_coordinates(self, screenshot):
+        """Read player and targeted block coordinates from F3 debug screen"""
+        try:
+            # Convert screenshot to grayscale for better OCR
+            gray = cv.cvtColor(screenshot, cv.COLOR_BGR2GRAY)
+            height, width = gray.shape
+            
+            # Apply thresholding to improve OCR accuracy
+            _, thresh = cv.threshold(gray, 150, 255, cv.THRESH_BINARY)
+            
+            # Read from LEFT side for "Targeted Block:"
+            roi_left = thresh[0:height//2, 0:width//3]
+            text_left = pytesseract.image_to_string(roi_left, config='--psm 6')
+            
+            # Read from RIGHT side for player "Block:" coordinates
+            roi_right = thresh[0:height//2, 2*width//3:width]
+            text_right = pytesseract.image_to_string(roi_right, config='--psm 6')
+            
+            # Parse player Block coordinates from RIGHT side (spaces only, no commas)
+            # Look for "Block:" followed by 3 numbers separated by spaces
+            block_pattern = r'Block:\s*(-?\d+)\s+(-?\d+)\s+(-?\d+)'
+            block_match = re.search(block_pattern, text_right)
+            if block_match:
+                self.player_coords = (int(block_match.group(1)), 
+                                     int(block_match.group(2)), 
+                                     int(block_match.group(3)))
+                print(f"[DEBUG] Player Block Coordinates: {self.player_coords}")
+            
+            # Parse Targeted Block coordinates from LEFT side (with commas)
+            target_pattern = r'Targeted Block:\s*(-?\d+)[,\s]+(-?\d+)[,\s]+(-?\d+)'
+            target_match = re.search(target_pattern, text_left)
+            if target_match:
+                self.target_block_coords = (int(target_match.group(1)), 
+                                           int(target_match.group(2)), 
+                                           int(target_match.group(3)))
+                print(f"[DEBUG] Targeted Block Coordinates: {self.target_block_coords}")
+            
+            return self.player_coords is not None or self.target_block_coords is not None
+            
+        except Exception as e:
+            print(f"[DEBUG] Error reading F3 coordinates: {str(e)}")
+            return False
 
 
 
@@ -105,12 +153,10 @@ class McBot:
 
             elif self.state == BotState.SEARCHING:
                 if self.move_crosshair_to_target():
-                    #pydirectinput.press('F3')
                     sleep(0.2)    
                     self.lock.acquire()
                     self.state = BotState.MOVING
                     self.lock.release()
-                    #pydirectinput.press('F3')
                     sleep(0.2)
 
             elif self.state == BotState.MINING:
@@ -118,7 +164,20 @@ class McBot:
                     self.lock.acquire()
                     self.state = BotState.SEARCHING
                     self.lock.release()
+                    
             elif self.state == BotState.MOVING:
+                # Press F3 to show debug info
+                pydirectinput.press('F3')
+                sleep(0.3)
+                
+                # Read coordinates from current screenshot
+                if self.screenshot is not None:
+                    self.read_f3_coordinates(self.screenshot)
+                
+                # Hide F3 debug info
+                pydirectinput.press('F3')
+                sleep(0.2)
+                
                 if self.move_to_target():
                     print("[DEBUG] Reached target, starting mining")
                     self.lock.acquire()
@@ -143,7 +202,6 @@ class McBot:
         center_y = self.window_h // 2
         dx = target_pos[0] - center_x
         dy = target_pos[1] - center_y
-        
         
         # Increase sensitivity for more noticeable movement
         sensitivity = 1.0
@@ -182,14 +240,14 @@ class McBot:
         initial_pos = self.targets
         
         print("[DEBUG] Walking forward")
-        pyautogui.keyDown('w')
+        pydirectinput.keyDown('w')
         sleep(0.5)
         if self.check_if_stuck():
             print("[DEBUG] Stuck, attempting to jump")
-            pyautogui.press('space')
+            pydirectinput.press('space')
             sleep(1.0)
         
-        pyautogui.keyUp('w')
+        pydirectinput.keyUp('w')
         
         return self.targets != initial_pos
 
