@@ -11,12 +11,10 @@ from bot import McBot, BotState
 
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
-wincap = WindowCapture('Minecraft 1.21.9 - Singleplayer') #Name of the window to capture
+wincap = WindowCapture('Minecraft 1.21.10 - Singleplayer') #Name of the window to capture
 
 DEBUG = True
-#vision_wood.init_control_gui()
 
-#hsv_filter = HsvFilter(14,181,0,24,227,255, 78, 0, 0, 0)
 
 detector = Detection('tree_detect_yolo.pt')
 vision_wood = Vision(None)

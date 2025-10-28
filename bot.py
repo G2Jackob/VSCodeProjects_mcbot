@@ -205,7 +205,7 @@ class McBot:
         
         # Single mining action
         pydirectinput.mouseDown()
-        sleep(2.0)
+        sleep(3.0)
         pydirectinput.mouseUp()
         sleep(0.5)
         

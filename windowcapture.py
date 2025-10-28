@@ -32,7 +32,7 @@ class WindowCapture:
         self.w = window_rect[2] - window_rect[0]
         self.h = window_rect[3] - window_rect[1]
 
-        border_width = 8
+        border_width = 0
         title_bar_height = 30
         self.w -= border_width * 2
         self.h -= border_width + title_bar_height
