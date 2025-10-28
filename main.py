@@ -96,6 +96,20 @@ while True:
                     cv.LINE_AA
                 )
                 
+                # Display distance to target
+                if bot.target_distance is not None:
+                    distance_text = f"Distance: {bot.target_distance:.2f} blocks"
+                    cv.putText(
+                        debug_image,
+                        distance_text,
+                        (10, 150),
+                        cv.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (0, 165, 255),
+                        2,
+                        cv.LINE_AA
+                    )
+                
                 targets = vision_wood.get_click_points(detector.results)
                 bot.update_targets(targets)
                 bot.update_screenshot(screenshot)

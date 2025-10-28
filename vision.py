@@ -23,7 +23,7 @@ class Vision:
 
    
     def get_click_points(self, results):
-        """Convert YOLO results to click points with distances"""
+        """Convert YOLO results to click points with confidence and size info"""
         if not results or not self.screen_center:
             return []
 
@@ -31,20 +31,26 @@ class Vision:
             # Get detection data
             boxes = results.boxes.xyxy.tolist()
             classes = results.boxes.cls.tolist()
+            confidences = results.boxes.conf.tolist()  # Get confidence scores
             names = results.names
             
-            # Process each detection and return list of center points
+            # Process each detection and return list of (x, y, confidence, size) tuples
             click_points = []
-            for box, cls in zip(boxes, classes):
-                self.targets_ordered_by_size([box])
+            for box, cls, conf in zip(boxes, classes, confidences):
                 x1, y1, x2, y2 = [int(coord) for coord in box]
                 
-                # Calculate center point
-                center_x = int((x1 + x2) / 2)
-                center_y = int((y1 + y2) / 2)
+                # Calculate size of bounding box
+                width = x2 - x1
+                height = y2 - y1
+                size = width * height
                 
-                # Add center point to list
-                click_points.append((center_x, center_y))
+                # Calculate bottom-center point (center X, 10 pixels above bottom Y)
+                # This will make the bot aim slightly above the bottom of the tree
+                center_x = int((x1 + x2) / 2)
+                bottom_y = int(y2) - 10  # 10 pixels above the bottom of the bounding box
+                
+                # Add bottom-center point with confidence and size to list
+                click_points.append((center_x, bottom_y, conf, size))
             
             return click_points
         except Exception as e:

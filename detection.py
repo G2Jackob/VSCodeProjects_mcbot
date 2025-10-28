@@ -1,4 +1,5 @@
 import cv2 as cv
+import numpy as np
 from threading import Thread, Lock
 from ultralytics import YOLO
 
@@ -33,8 +34,17 @@ class Detection:
         while not self.stopped:
             if self.screenshot is not None:
                 try:
+                    # Check if image is too dark and brighten it for better detection
+                    screenshot_to_process = self.screenshot
+                    mean_brightness = cv.mean(cv.cvtColor(self.screenshot, cv.COLOR_BGR2GRAY))[0]
+                    
+                    if mean_brightness < 50:  # Image is very dark (nighttime only)
+                        print(f"[DEBUG] Dark conditions detected (brightness: {mean_brightness:.1f}), enhancing image")
+                        # Strong brightness increase for nighttime
+                        screenshot_to_process = cv.convertScaleAbs(self.screenshot, alpha=2.5, beta=50)
+                    
                     # Get results from YOLO model
-                    results = self.model(self.screenshot, show=False, conf=0.6, line_width=1, classes=[1,3,5,7,9,11])[0]
+                    results = self.model(screenshot_to_process, show=False, conf=0.6, line_width=1, classes=[1,3,5,7,9,11])[0]
                     
                     self.lock.acquire()
                     self.debug_image = results.plot()

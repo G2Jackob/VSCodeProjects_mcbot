@@ -1,2 +1,10 @@
-ordering by size, then by distance, is just distance, needs fix
-fix walking allways before mineing
+
+Done:
++ coords reading from F3
++ moveing by coordinates
++ Odering by confidence * 0,7 + size *0,3
+
+To fix:
+- Taking coordintes is buggy (sometmes the targeted block cords are wrong)
+- Works like shit in the night and rain
+- model sometiemes loses tagets when too close or mined
