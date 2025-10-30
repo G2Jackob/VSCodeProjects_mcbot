@@ -29,7 +29,8 @@ BOT_STATE_NAMES = {
     0: "INITIALIZING",
     1: "SEARCHING",
     2: "MOVING",
-    3: "MINING"
+    3: "MINING",
+    4: "CRAFTING"
 }
 
 loop_time = time()

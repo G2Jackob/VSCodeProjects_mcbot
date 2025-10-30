@@ -12,6 +12,7 @@ class BotState:
     SEARCHING = 1
     MOVING = 2
     MINING = 3
+    CRAFTING = 4
 
 class McBot:
 
@@ -19,6 +20,7 @@ class McBot:
     MINING_TIME = 5
     MOVEMENT_STOPPED_THRESHOLD = 0.95
     TOOLTIP_MATCH_THRESHOLD = 0.75
+    WOOD_LOG_THRESHOLD = 0.7  # Threshold for wood log pattern matching
 
     stopped = True
     lock = None
@@ -35,6 +37,8 @@ class McBot:
     target_block_coords = None
     current_target = None  # Persistent target tracking
     target_distance = None  # Distance to target
+    wood_log_icon = None  # Template for wood log icon
+    wood_count = 0  # Tracked wood logs
 
     def __init__(self, window_offset, window_size):
         self.lock = Lock()
@@ -46,44 +50,109 @@ class McBot:
         self.target_block_coords = None
         self.current_target = None
         self.target_distance = None
+        self.wood_count = 0
 
         self.wood_tooltip = cv.imread('wood_tooltip.jpg', cv.IMREAD_UNCHANGED)
         
+        # Load wood log icon template for pattern matching
+        try:
+            self.wood_log_icon = cv.imread('wood_log_icon.png', cv.IMREAD_UNCHANGED)
+            if self.wood_log_icon is not None:
+                print("[DEBUG] Wood log icon template loaded")
+            else:
+                print("[DEBUG] Warning: wood_log_icon.png not found, crafting disabled")
+        except:
+            print("[DEBUG] Warning: Could not load wood_log_icon.png, crafting disabled")
+        
     def read_f3_coordinates(self, screenshot):
-        """Read player and targeted block coordinates from F3 debug screen with improved OCR"""
+        """Read player and targeted block coordinates from F3 debug screen using proportional positioning"""
         try:
             # Convert screenshot to grayscale for better OCR
             gray = cv.cvtColor(screenshot, cv.COLOR_BGR2GRAY)
             height, width = gray.shape
             
-            # Check brightness and enhance if needed
-            mean_brightness = cv.mean(gray)[0]
-            if mean_brightness < 80:  # Dark conditions
-                print(f"[DEBUG] Dark OCR conditions (brightness: {mean_brightness:.1f}), enhancing")
-                # Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
-                clahe = cv.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
-                gray = clahe.apply(gray)
-            
-            # Apply stronger thresholding for Minecraft's white text
-            _, thresh = cv.threshold(gray, 180, 255, cv.THRESH_BINARY)
-            
-            # Scale up the image for better OCR (Minecraft font is small)
+            # Scale up for better OCR quality
             scale_factor = 2
+            gray_scaled = cv.resize(gray, None, fx=scale_factor, fy=scale_factor, 
+                                   interpolation=cv.INTER_CUBIC)
+            scaled_height, scaled_width = gray_scaled.shape
             
-            # Read from LEFT side for "Targeted Block:"
-            roi_left = thresh[0:height//2, 0:width//3]
-            roi_left_scaled = cv.resize(roi_left, None, fx=scale_factor, fy=scale_factor, interpolation=cv.INTER_CUBIC)
-            text_left = pytesseract.image_to_string(roi_left_scaled, config='--psm 6')
+            # Use proportions to extract specific regions (from ROI selector tool)
+            # "Block:" coordinates are in top-right corner
+            # Format: "Block: X Y Z" with spaces
+            block_x_start = int(scaled_width * 0.8280)
+            block_y_start = int(scaled_height * 0.0975)
+            block_y_end = int(scaled_height * 0.1175)
             
-            # Read from RIGHT side for player "Block:" coordinates  
-            roi_right = thresh[0:height//2, 2*width//3:width]
-            roi_right_scaled = cv.resize(roi_right, None, fx=scale_factor, fy=scale_factor, interpolation=cv.INTER_CUBIC)
-            text_right = pytesseract.image_to_string(roi_right_scaled, config='--psm 6')
+            roi_block = gray_scaled[block_y_start:block_y_end, block_x_start:scaled_width]
             
-            # Parse player Block coordinates from RIGHT side (spaces only, no commas)
+            # "Targeted Block:" coordinates are in top-left area
+            # Format: "Targeted Block: X, Y, Z" with commas
+            target_x_start = int(scaled_width * 0.0029)
+            target_x_end = int(scaled_width * 0.2313)
+            target_y_start = int(scaled_height * 0.0938)
+            target_y_end = int(scaled_height * 0.1187)
+            
+            roi_target = gray_scaled[target_y_start:target_y_end, target_x_start:target_x_end]
+            
+            # Apply better preprocessing for OCR on small text
+            # Scale up ROIs even more for better character recognition
+            roi_block_large = cv.resize(roi_block, None, fx=3, fy=3, interpolation=cv.INTER_CUBIC)
+            roi_target_large = cv.resize(roi_target, None, fx=3, fy=3, interpolation=cv.INTER_CUBIC)
+            
+            # Apply binary threshold to clean up the text
+            _, roi_block_thresh = cv.threshold(roi_block_large, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
+            _, roi_target_thresh = cv.threshold(roi_target_large, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
+            
+            # Save debug images showing the ROI regions
+            try:
+                # Save processed ROIs
+                cv.imwrite("debug_block_roi.png", roi_block_thresh)
+                cv.imwrite("debug_target_roi.png", roi_target_thresh)
+                
+                # Save full screenshot with rectangles showing ROI locations
+                debug_full = cv.cvtColor(gray_scaled, cv.COLOR_GRAY2BGR)
+                # Draw Block ROI in RED
+                cv.rectangle(debug_full, 
+                           (block_x_start, block_y_start), 
+                           (scaled_width, block_y_end), 
+                           (0, 0, 255), 3)
+                cv.putText(debug_full, "Block ROI", 
+                          (block_x_start + 5, block_y_start - 5),
+                          cv.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                
+                # Draw Target ROI in GREEN
+                cv.rectangle(debug_full, 
+                           (target_x_start, target_y_start), 
+                           (target_x_end, target_y_end), 
+                           (0, 255, 0), 3)
+                cv.putText(debug_full, "Target ROI", 
+                          (target_x_start + 5, target_y_start - 5),
+                          cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                
+                cv.imwrite("debug_full_with_rois.png", debug_full)
+                print("[DEBUG] Saved debug images with ROI markers")
+            except Exception as e:
+                print(f"[DEBUG] Could not save debug images: {e}")
+            
+            # OCR config optimized for single line of text
+            # PSM 7 = treat as single line, PSM 13 = raw line (no extra processing)
+            ocr_config = '--psm 7'
+            
+            # Read player Block coordinates using preprocessed image
+            text_block = pytesseract.image_to_string(roi_block_thresh, config=ocr_config)
+            text_block = self._fix_ocr_errors(text_block)
+            print(f"[DEBUG] Block ROI text: {repr(text_block[:100])}")
+            
+            # Read Targeted Block coordinates using preprocessed image
+            text_target = pytesseract.image_to_string(roi_target_thresh, config=ocr_config)
+            text_target = self._fix_ocr_errors(text_target)
+            print(f"[DEBUG] Target ROI text: {repr(text_target[:100])}")
+            
+            # Parse player Block coordinates (spaces only, no commas)
             # Look for "Block:" followed by 3 numbers separated by spaces
             block_pattern = r'Block:\s*(-?\d+)\s+(-?\d+)\s+(-?\d+)'
-            block_match = re.search(block_pattern, text_right)
+            block_match = re.search(block_pattern, text_block)
             if block_match:
                 new_coords = (int(block_match.group(1)), 
                              int(block_match.group(2)), 
@@ -94,10 +163,12 @@ class McBot:
                     print(f"[DEBUG] Player Block Coordinates: {self.player_coords}")
                 else:
                     print(f"[DEBUG] Ignoring invalid player coords: {new_coords} (previous: {self.player_coords})")
+            else:
+                print(f"[DEBUG] No player Block: match found in text")
             
-            # Parse Targeted Block coordinates from LEFT side (with commas)
+            # Parse Targeted Block coordinates (with commas)
             target_pattern = r'Targeted Block:\s*(-?\d+)[,\s]+(-?\d+)[,\s]+(-?\d+)'
-            target_match = re.search(target_pattern, text_left)
+            target_match = re.search(target_pattern, text_target)
             if target_match:
                 new_coords = (int(target_match.group(1)), 
                              int(target_match.group(2)), 
@@ -108,6 +179,8 @@ class McBot:
                     print(f"[DEBUG] Targeted Block Coordinates: {self.target_block_coords}")
                 else:
                     print(f"[DEBUG] Ignoring invalid target coords: {new_coords} (previous: {self.target_block_coords})")
+            else:
+                print(f"[DEBUG] No Targeted Block: match found in text")
             
             return self.player_coords is not None or self.target_block_coords is not None
             
@@ -115,10 +188,56 @@ class McBot:
             print(f"[DEBUG] Error reading F3 coordinates: {str(e)}")
             return False
     
+    def _fix_ocr_errors(self, text):
+        """Fix common OCR mistakes with Minecraft font"""
+        fixed = text
+        
+        # Fix common word misreads
+        fixed = fixed.replace('Glock:', 'Block:')
+        fixed = fixed.replace('Targeted Glock:', 'Targeted Block:')
+        
+        # Fix missing "Block:" or "Targeted Block:" prefix
+        # If line starts with ":" it likely missed the word before
+        if fixed.startswith(':-') or fixed.startswith(': -') or fixed.startswith(':'):
+            # Could be either "Block:" or "Targeted Block:"
+            # Check if it has commas (Targeted Block format)
+            if ',' in fixed:
+                fixed = 'Targeted Block' + fixed
+            else:
+                fixed = 'Block' + fixed
+        
+        # Fix missing spaces in coordinate strings
+        # ":-396329" should be "Block: -39 63 29"
+        # ":-4,64,29" should be "Targeted Block: -4, 64, 29"
+        # Look for patterns like ": -<digits><digits><digits>" without spaces
+        block_no_space = re.search(r'(Block:)\s*(-?\d{2})(\d{2})(\d{2})\s*$', fixed)
+        if block_no_space:
+            fixed = f"{block_no_space.group(1)} {block_no_space.group(2)} {block_no_space.group(3)} {block_no_space.group(4)}"
+        
+        # Fix tilde to minus before numbers (for negative coordinates)
+        fixed = re.sub(r'(Block:)\s*~', r'\1 -', fixed)
+        fixed = re.sub(r'(Targeted Block:)\s*~', r'\1 -', fixed)
+        
+        # Fix S to 5 when it appears as a digit
+        fixed = re.sub(r'\bS(?=\d)', '5', fixed)  # S before digit
+        fixed = re.sub(r'(?<=\d)S\b', '5', fixed)  # S after digit
+        fixed = re.sub(r'(?<=\s)S(?=\s)', '5', fixed)  # S between spaces
+        
+        # Fix O to 0 in number contexts
+        fixed = re.sub(r'(?<=\d)O(?=[\d,\s-])', '0', fixed)
+        fixed = re.sub(r'(?<=[\s,:-])O(?=\d)', '0', fixed)
+        
+        # Fix I or l to 1 in number contexts
+        fixed = re.sub(r'(?<=\d)[Il](?=[\d,\s-])', '1', fixed)
+        fixed = re.sub(r'(?<=[\s,:-])[Il](?=\d)', '1', fixed)
+        
+        return fixed
+    
     def _coords_are_reasonable(self, new_coords, old_coords):
         """Check if new coordinates are reasonable compared to old ones"""
-        # Allow up to 10 blocks difference per coordinate (player can't move that fast)
-        max_diff = 10
+        # Allow up to 20 blocks difference per coordinate (increased from 10)
+        # Player can move faster when teleporting or in vehicles
+        max_diff = 20
         for i in range(3):
             if abs(new_coords[i] - old_coords[i]) > max_diff:
                 return False
@@ -229,13 +348,23 @@ class McBot:
                 if self.move_crosshair_to_target():
                     print("[DEBUG] Cursor centered, starting mining")
                     if self.mine_tree():
-                        print("[DEBUG] Mining complete, clearing target")
-                        self.lock.acquire()
-                        self.state = BotState.SEARCHING
-                        self.current_target = None  # Clear target after mining
-                        self.target_block_coords = None
-                        self.target_distance = None
-                        self.lock.release()
+                        print("[DEBUG] Mining complete, counting wood")
+                        self.count_wood_logs()
+                        
+                        # Check if we have enough wood to craft
+                        if self.wood_count >= 10:
+                            print(f"[DEBUG] Collected {self.wood_count} wood logs, transitioning to CRAFTING")
+                            self.lock.acquire()
+                            self.state = BotState.CRAFTING
+                            self.lock.release()
+                        else:
+                            print(f"[DEBUG] Wood count: {self.wood_count}/10, clearing target")
+                            self.lock.acquire()
+                            self.state = BotState.SEARCHING
+                            self.current_target = None  # Clear target after mining
+                            self.target_block_coords = None
+                            self.target_distance = None
+                            self.lock.release()
                 else:
                     print("[DEBUG] Lost target while recentering, going back to searching")
                     self.lock.acquire()
@@ -243,10 +372,19 @@ class McBot:
                     self.current_target = None
                     self.lock.release()
                     
+            elif self.state == BotState.CRAFTING:
+                print("[DEBUG] Starting crafting sequence")
+                if self.craft_planks():
+                    print("[DEBUG] Crafting complete, resetting wood count")
+                    self.wood_count = 0
+                    self.lock.acquire()
+                    self.state = BotState.SEARCHING
+                    self.lock.release()
+                    
             elif self.state == BotState.MOVING:
                 # Press F3 to show debug info and read coordinates
                 pydirectinput.press('F3')
-                sleep(0.3)
+                sleep(0.5)  # Increased wait time for F3 to fully display
                 
                 # Read coordinates from current screenshot
                 if self.screenshot is not None:
@@ -383,10 +521,111 @@ class McBot:
         
         # Single mining action
         pydirectinput.mouseDown()
-        sleep(3.0)
+        sleep(3.5)
         pydirectinput.mouseUp()
         sleep(0.5)
         
         
         
         return True
+    
+    def count_wood_logs(self):
+        """Count wood logs in inventory using pattern matching"""
+        if self.wood_log_icon is None or self.screenshot is None:
+            print("[DEBUG] Cannot count wood - template or screenshot missing")
+            return
+        
+        try:
+            # Open inventory
+            pydirectinput.press('e')
+            sleep(0.5)
+            
+            # Get current screenshot (inventory open)
+            # Note: You'll need to capture a new screenshot here
+            # For now, using the existing screenshot
+            
+            # Define hotbar region (bottom of screen, proportional)
+            hotbar_y_start = int(self.window_h * 0.85)  # Bottom 15% of screen
+            hotbar_region = self.screenshot[hotbar_y_start:self.window_h, 0:self.window_w]
+            
+            # Match wood log icon in hotbar
+            result = cv.matchTemplate(hotbar_region, self.wood_log_icon, cv.TM_CCOEFF_NORMED)
+            
+            # Find all matches above threshold
+            locations = cv.findNonZero((result >= self.WOOD_LOG_THRESHOLD).astype('uint8'))
+            
+            # Count unique matches (avoiding duplicates from overlapping)
+            if locations is not None:
+                # Simple approximation: divide by expected match area
+                self.wood_count = len(locations) // 100  # Rough estimate
+            else:
+                self.wood_count = 0
+            
+            print(f"[DEBUG] Found approximately {self.wood_count} wood log stacks in hotbar")
+            
+            # Close inventory
+            pydirectinput.press('e')
+            sleep(0.5)
+            
+        except Exception as e:
+            print(f"[DEBUG] Error counting wood logs: {str(e)}")
+            # Make sure inventory is closed
+            pydirectinput.press('e')
+            sleep(0.3)
+    
+    def craft_planks(self):
+        """Craft planks from wood logs using proportional positioning"""
+        try:
+            print("[DEBUG] Opening inventory for crafting")
+            pydirectinput.press('e')
+            sleep(0.7)
+            
+            # Calculate positions based on proportions from the screenshots
+            # The inventory window is centered, crafting grid is in upper right
+            
+            # Wood in hotbar (bottom left of inventory, first slot after off-hand)
+            # Off-hand is at ~0.405, first hotbar slot is at ~0.43
+            hotbar_slot1_x = int(self.window_w * 0.43) + self.offset_x
+            hotbar_slot1_y = int(self.window_h * 0.67) + self.offset_y  # Bottom section of inventory
+            
+            # 2x2 Crafting grid (upper right of inventory)
+            # Grid starts around 0.55 width, 0.39 height
+            craft_grid_x = int(self.window_w * 0.56) + self.offset_x  # Top-left cell of 2x2 grid
+            craft_grid_y = int(self.window_h * 0.395) + self.offset_y
+            
+            # Crafting output slot (right of the arrow)
+            # Output is around 0.61 width, same height as grid
+            craft_output_x = int(self.window_w * 0.61) + self.offset_x
+            craft_output_y = int(self.window_h * 0.41) + self.offset_y
+            
+            print("[DEBUG] Clicking on wood logs in hotbar")
+            # Click on wood in hotbar
+            pydirectinput.click(x=hotbar_slot1_x, y=hotbar_slot1_y)
+            sleep(0.3)
+            
+            print("[DEBUG] Placing wood in crafting grid")
+            # Place one log in crafting grid (top-left slot)
+            pydirectinput.click(x=craft_grid_x, y=craft_grid_y)
+            sleep(0.3)
+            
+            print("[DEBUG] Collecting crafted planks")
+            # Shift-click output to collect all planks
+            pydirectinput.keyDown('shift')
+            for _ in range(3):  # Click multiple times to collect all
+                pydirectinput.click(x=craft_output_x, y=craft_output_y)
+                sleep(0.2)
+            pydirectinput.keyUp('shift')
+            sleep(0.3)
+            
+            print("[DEBUG] Closing inventory")
+            pydirectinput.press('e')
+            sleep(0.5)
+            
+            return True
+            
+        except Exception as e:
+            print(f"[DEBUG] Error during crafting: {str(e)}")
+            # Make sure inventory is closed
+            pydirectinput.press('e')
+            sleep(0.3)
+            return False

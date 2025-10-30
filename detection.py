@@ -36,9 +36,18 @@ class Detection:
                 try:
                     # Check if image is too dark and brighten it for better detection
                     screenshot_to_process = self.screenshot
-                    mean_brightness = cv.mean(cv.cvtColor(self.screenshot, cv.COLOR_BGR2GRAY))[0]
                     
-                    if mean_brightness < 50:  # Image is very dark (nighttime only)
+                    # Check if we're in a menu/inventory (high contrast UI elements)
+                    # Inventory has bright UI, so skip brightness check if detected
+                    gray = cv.cvtColor(self.screenshot, cv.COLOR_BGR2GRAY)
+                    mean_brightness = cv.mean(gray)[0]
+                    
+                    # Check for high contrast (inventory UI has bright elements)
+                    # Calculate standard deviation - UI has high variance
+                    _, std_dev = cv.meanStdDev(gray)
+                    is_in_menu = std_dev[0][0] > 60  # High variance = UI present
+                    
+                    if mean_brightness < 50 and not is_in_menu:  # Dark and not in menu
                         print(f"[DEBUG] Dark conditions detected (brightness: {mean_brightness:.1f}), enhancing image")
                         # Strong brightness increase for nighttime
                         screenshot_to_process = cv.convertScaleAbs(self.screenshot, alpha=2.5, beta=50)
