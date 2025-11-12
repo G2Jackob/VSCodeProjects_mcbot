@@ -5,7 +5,11 @@ from time import sleep, time
 from threading import Thread, Lock
 import random
 import pytesseract
+import numpy as np
 import re
+
+# Use user's Tesseract install path
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 class BotState:
     INITIALIZING = 0
@@ -77,30 +81,101 @@ class McBot:
                                    interpolation=cv.INTER_CUBIC)
             scaled_height, scaled_width = gray_scaled.shape
             
-            # Use proportions to extract specific regions (from ROI selector tool)
-            # "Block:" coordinates are in top-right corner
-            # Format: "Block: X Y Z" with spaces
-            block_x_start = int(scaled_width * 0.8280)
-            block_y_start = int(scaled_height * 0.0975)
-            block_y_end = int(scaled_height * 0.1175)
+            # Use proportions of the TOP HALF of the screen for ROI calculations
+            top_portion = gray_scaled[0:scaled_height//2, :]
+            top_h, top_w = top_portion.shape
+
+            # "Block:" coordinates (player) are in the top-right area (use proportions of top half)
+            block_x_start = int(top_w * 0.8280)
+            block_x_end = top_w
+            # Y proportions relative to top half (derived from previous full-screen props divided by 0.5)
+            block_y_start = int(top_h * 0.195)   # ~0.0975/0.5
+            block_y_end = int(top_h * 0.235)     # ~0.1175/0.5
+
+            roi_block = top_portion[block_y_start:block_y_end, block_x_start:block_x_end]
+
+            # "Targeted Block:" coordinates are in top-left area of the top half
+            target_x_start = int(top_w * 0.0029)
+            target_x_end = int(top_w * 0.2313)
+            target_y_start = int(top_h * 0.1876)  # ~0.0938/0.5
+            target_y_end = int(top_h * 0.2374)    # ~0.1187/0.5
+
+            roi_target = top_portion[target_y_start:target_y_end, target_x_start:target_x_end]
             
-            roi_block = gray_scaled[block_y_start:block_y_end, block_x_start:scaled_width]
-            
-            # "Targeted Block:" coordinates are in top-left area
-            # Format: "Targeted Block: X, Y, Z" with commas
-            target_x_start = int(scaled_width * 0.0029)
-            target_x_end = int(scaled_width * 0.2313)
-            target_y_start = int(scaled_height * 0.0938)
-            target_y_end = int(scaled_height * 0.1187)
-            
-            roi_target = gray_scaled[target_y_start:target_y_end, target_x_start:target_x_end]
-            
-            # Apply better preprocessing for OCR on small text
-            # Scale up ROIs even more for better character recognition
+            # Use the blog's HSV masking approach to isolate Minecraft debug text
+            # Scale the color screenshot and take the top half for ROI calculations
+            color_scaled = cv.resize(screenshot, (scaled_width, scaled_height), interpolation=cv.INTER_CUBIC)
+            color_top = color_scaled[0:scaled_height//2, :]
+
+            # Follow the blog's pipeline exactly: convert to RGB -> HSV, mask, bitwise -> gray -> Otsu
+            # Convert BGR->RGB to match the blog's RGB pipeline
+            color_top_rgb = cv.cvtColor(color_top, cv.COLOR_BGR2RGB)
+            hsv_top = cv.cvtColor(color_top_rgb, cv.COLOR_RGB2HSV)
+            # Blog suggested values for isolating the white-gray debug text
+            color_lower = np.array([100, 255, 220])
+            color_upper = np.array([200, 255, 230])
+            mask_top = cv.inRange(hsv_top, color_lower, color_upper)
+            # Fallback to broader white range if strict mask yields almost nothing
+            if cv.countNonZero(mask_top) < 20:
+                mask_top = cv.inRange(hsv_top, np.array([0, 0, 200]), np.array([179, 90, 255]))
+
+            # Apply mask to the RGB top image
+            result_rgb = cv.bitwise_and(color_top_rgb, color_top_rgb, mask=mask_top)
+            # Save debug images
+            try:
+                cv.imwrite("debug_top_mask.png", mask_top)
+                cv.imwrite("debug_top_isolated_color.png", cv.cvtColor(result_rgb, cv.COLOR_RGB2BGR))
+            except Exception:
+                pass
+
+            # Convert the masked RGB result to grayscale like the blog and threshold with Otsu
+            top_gray_from_result = cv.cvtColor(result_rgb, cv.COLOR_RGB2GRAY)
+            top_gray_from_result = cv.medianBlur(top_gray_from_result, 3)
+            # Threshold full top area (blog does this) to produce a binary image for cropping
+            top_thresh_full = cv.threshold(top_gray_from_result, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)[1]
+
+            # Prepare a focused top-right crop for XYZ OCR: upscale and threshold using Otsu
+            # User configured XYZ to appear in the top-right; crop that area to reduce noise
+            # Expand the crop upward so it doesn't cut off the top line
+            xyz_x_start = int(top_w * 0.65)
+            xyz_x_end = top_w
+            xyz_y_start = 0
+            xyz_y_end = int(top_h * 0.20)
+
+            # Ensure bounds are valid
+            xyz_x_start = max(0, min(xyz_x_start, top_w - 1))
+            xyz_x_end = max(1, min(xyz_x_end, top_w))
+            xyz_y_start = max(0, min(xyz_y_start, top_h - 1))
+            xyz_y_end = max(1, min(xyz_y_end, top_h))
+
+            xyz_roi = top_thresh_full[xyz_y_start:xyz_y_end, xyz_x_start:xyz_x_end]
+            if xyz_roi.size == 0:
+                # Fallback to whole top if crop failed for any reason
+                xyz_roi = top_thresh_full
+
+            # Save xyz crop for debugging
+            try:
+                cv.imwrite("debug_xyz_crop.png", xyz_roi)
+            except Exception:
+                pass
+
+            xyz_large = cv.resize(xyz_roi, None, fx=2, fy=2, interpolation=cv.INTER_CUBIC)
+            _, xyz_thresh = cv.threshold(xyz_large, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
+            # Morphological opening to remove small noise
+            kernel = np.ones((2, 2), np.uint8)
+            xyz_thresh = cv.morphologyEx(xyz_thresh, cv.MORPH_OPEN, kernel)
+
+            # Use a conservative PSM and the mc traineddata; don't attempt heavy post-corrections here
+            text_top = pytesseract.image_to_string(xyz_thresh, config='--psm 6', lang='mc')
+            print(f"[DEBUG] Top-right (XYZ) OCR: {repr(text_top[:300])}")
+
+            # For ROIs, crop from the blog-style thresholded top image and upscale
+            roi_block = top_thresh_full[block_y_start:block_y_end, block_x_start:block_x_end]
+            roi_target = top_thresh_full[target_y_start:target_y_end, target_x_start:target_x_end]
+
             roi_block_large = cv.resize(roi_block, None, fx=3, fy=3, interpolation=cv.INTER_CUBIC)
             roi_target_large = cv.resize(roi_target, None, fx=3, fy=3, interpolation=cv.INTER_CUBIC)
-            
-            # Apply binary threshold to clean up the text
+
             _, roi_block_thresh = cv.threshold(roi_block_large, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
             _, roi_target_thresh = cv.threshold(roi_target_large, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
             
@@ -136,17 +211,73 @@ class McBot:
                 print(f"[DEBUG] Could not save debug images: {e}")
             
             # OCR config optimized for single line of text
-            # PSM 7 = treat as single line, PSM 13 = raw line (no extra processing)
             ocr_config = '--psm 7'
-            
-            # Read player Block coordinates using preprocessed image
-            text_block = pytesseract.image_to_string(roi_block_thresh, config=ocr_config)
-            text_block = self._fix_ocr_errors(text_block)
+
+            # (Already performed a simple top-area OCR above using grayscale.)
+
+            # Read player Block coordinates (prefer XYZ line if present)
+            player_coords_found = False
+            xyz_pattern = r'XYZ[:\s]*([-]?\d+\.?\d*)\s*/\s*([-]?\d+\.?\d*)\s*/\s*([-]?\d+\.?\d*)'
+            xyz_match = re.search(xyz_pattern, text_top)
+            if xyz_match:
+                try:
+                    x = int(round(float(xyz_match.group(1))))
+                    y = int(round(float(xyz_match.group(2))))
+                    z = int(round(float(xyz_match.group(3))))
+                    new_coords = (x, y, z)
+                    if self.player_coords is None or self._coords_are_reasonable(new_coords, self.player_coords):
+                        self.player_coords = new_coords
+                        player_coords_found = True
+                        print(f"[DEBUG] Player XYZ Coordinates: {self.player_coords}")
+                except Exception:
+                    pass
+            else:
+                # Fallback: look for a line containing slashes ("/"), which is typical for XYZ
+                found = False
+                for line in text_top.splitlines():
+                    lower = line.lower()
+                    if 'chunk' in lower or 'facing' in lower:
+                        continue
+                    if '/' in line:
+                        nums = re.findall(r'-?\d+\.?\d*', line)
+                        if len(nums) >= 3:
+                            try:
+                                x = int(round(float(nums[0])))
+                                y = int(round(float(nums[1])))
+                                z = int(round(float(nums[2])))
+                                new_coords = (x, y, z)
+                                if self.player_coords is None or self._coords_are_reasonable(new_coords, self.player_coords):
+                                    self.player_coords = new_coords
+                                    player_coords_found = True
+                                    print(f"[DEBUG] Player XYZ Coordinates (line-with-slash fallback): {self.player_coords}")
+                                    found = True
+                                    break
+                            except Exception:
+                                continue
+                if not found:
+                    # Final fallback: only use raw numbers if the OCR output doesn't look like a chunk/facing line
+                    lower_all = text_top.lower()
+                    if 'chunk' not in lower_all and 'facing' not in lower_all:
+                        nums = re.findall(r'-?\d+\.?\d*', text_top)
+                        if len(nums) >= 3:
+                            try:
+                                x = int(round(float(nums[0])))
+                                y = int(round(float(nums[1])))
+                                z = int(round(float(nums[2])))
+                                new_coords = (x, y, z)
+                                if self.player_coords is None or self._coords_are_reasonable(new_coords, self.player_coords):
+                                    self.player_coords = new_coords
+                                    player_coords_found = True
+                                    print(f"[DEBUG] Player XYZ Coordinates (numeric fallback): {self.player_coords}")
+                            except Exception:
+                                pass
+
+            # Fallback: OCR the block ROI for 'Block:' if XYZ not found
+            text_block = pytesseract.image_to_string(roi_block_thresh, config=ocr_config, lang='mc')
             print(f"[DEBUG] Block ROI text: {repr(text_block[:100])}")
-            
+
             # Read Targeted Block coordinates using preprocessed image
-            text_target = pytesseract.image_to_string(roi_target_thresh, config=ocr_config)
-            text_target = self._fix_ocr_errors(text_target)
+            text_target = pytesseract.image_to_string(roi_target_thresh, config=ocr_config, lang='mc')
             print(f"[DEBUG] Target ROI text: {repr(text_target[:100])}")
             
             # Parse player Block coordinates (spaces only, no commas)
@@ -164,7 +295,47 @@ class McBot:
                 else:
                     print(f"[DEBUG] Ignoring invalid player coords: {new_coords} (previous: {self.player_coords})")
             else:
-                print(f"[DEBUG] No player Block: match found in text")
+                # Fallback: try to find a line mentioning 'Block' or take the first numeric line
+                used = False
+                for line in text_block.splitlines():
+                    lower = line.lower()
+                    if 'chunk' in lower or 'facing' in lower:
+                        continue
+                    if 'block' in lower:
+                        nums = re.findall(r'-?\d+', line)
+                        if len(nums) >= 3:
+                            try:
+                                new_coords = (int(nums[0]), int(nums[1]), int(nums[2]))
+                                if self.player_coords is None or self._coords_are_reasonable(new_coords, self.player_coords):
+                                    self.player_coords = new_coords
+                                    print(f"[DEBUG] Player Block Coordinates (block-line fallback): {self.player_coords}")
+                                else:
+                                    print(f"[DEBUG] Ignoring invalid player coords: {new_coords} (previous: {self.player_coords})")
+                                used = True
+                                break
+                            except Exception:
+                                continue
+                if not used:
+                    # Use first numeric line that doesn't look like chunk/facing
+                    for line in text_block.splitlines():
+                        lower = line.lower()
+                        if 'chunk' in lower or 'facing' in lower:
+                            continue
+                        nums = re.findall(r'-?\d+', line)
+                        if len(nums) >= 3:
+                            try:
+                                new_coords = (int(nums[0]), int(nums[1]), int(nums[2]))
+                                if self.player_coords is None or self._coords_are_reasonable(new_coords, self.player_coords):
+                                    self.player_coords = new_coords
+                                    print(f"[DEBUG] Player Block Coordinates (numeric-line fallback): {self.player_coords}")
+                                else:
+                                    print(f"[DEBUG] Ignoring invalid player coords: {new_coords} (previous: {self.player_coords})")
+                                used = True
+                                break
+                            except Exception:
+                                continue
+                    if not used:
+                        print(f"[DEBUG] No player Block: match found in text")
             
             # Parse Targeted Block coordinates (with commas)
             target_pattern = r'Targeted Block:\s*(-?\d+)[,\s]+(-?\d+)[,\s]+(-?\d+)'
@@ -180,7 +351,27 @@ class McBot:
                 else:
                     print(f"[DEBUG] Ignoring invalid target coords: {new_coords} (previous: {self.target_block_coords})")
             else:
-                print(f"[DEBUG] No Targeted Block: match found in text")
+                # Fallback: try to find a numeric line that isn't a chunk/facing line
+                used = False
+                for line in text_target.splitlines():
+                    lower = line.lower()
+                    if 'chunk' in lower or 'facing' in lower:
+                        continue
+                    nums = re.findall(r'-?\d+', line)
+                    if len(nums) >= 3:
+                        try:
+                            new_coords = (int(nums[0]), int(nums[1]), int(nums[2]))
+                            if self.target_block_coords is None or self._coords_are_reasonable(new_coords, self.target_block_coords):
+                                self.target_block_coords = new_coords
+                                print(f"[DEBUG] Targeted Block Coordinates (numeric-line fallback): {self.target_block_coords}")
+                            else:
+                                print(f"[DEBUG] Ignoring invalid target coords: {new_coords} (previous: {self.target_block_coords})")
+                            used = True
+                            break
+                        except Exception:
+                            continue
+                if not used:
+                    print(f"[DEBUG] No Targeted Block: match found in text")
             
             return self.player_coords is not None or self.target_block_coords is not None
             
