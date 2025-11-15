@@ -280,20 +280,34 @@ class McBot:
         except Exception as e:
             print(f"[DEBUG] Error creating debug image: {str(e)}")
     
-    def get_best_target(self):
+    def get_best_target(self, include_distance=False):
         """Find the best target based on confidence and size combined"""
         if not self.targets:
             return None
         
+        center_x = self.window_w // 2
+        center_y = self.window_h // 2
+        
         # Each target is now (x, y, confidence, size)
-        # Calculate a score combining both confidence and size
+        # Calculate a score combining confidence (70%) and raw size (30%)
         targets_with_score = []
         for target in self.targets:
             x, y, conf, size = target
-            # Score = confidence * normalized_size
-            # Normalize size to 0-1 range (assuming max size ~50000 pixels)
-            normalized_size = min(size / 50000.0, 1.0)
-            score = conf * (0.7 + 0.3 * normalized_size)  # 70% confidence, 30% size weight
+            # Use raw size directly - bigger trees get higher scores
+            base_score = (conf * 0.7) + (size * 0.3)
+            
+            if include_distance:
+                # Add distance component (25% weight, inverted so closer is better)
+                dx = x - center_x
+                dy = y - center_y
+                distance = (dx**2 + dy**2)**0.5
+                # Normalize distance (assume max relevant distance is 500 pixels)
+                distance_score = max(0, 500 - distance)
+                # Combine: 75% best score, 25% distance score
+                score = (base_score * 0.5) + (distance_score * 0.5)
+            else:
+                score = base_score
+            
             targets_with_score.append((target, score))
         
         # Sort by score in descending order
@@ -443,23 +457,33 @@ class McBot:
 
     def move_crosshair_to_target(self):
         """Move crosshair to target with best confidence"""
-        # Always get the best target (recalculated each frame as detections update)
-        best_target = self.get_best_target()
-        if best_target is None:
-            print("[DEBUG] No targets available, scanning left")
-            self.current_target = None
-            # Move camera left to scan for trees
-            pydirectinput.moveRel(-400, 0, relative=True)
-            sleep(0.3)
-            return False
-        
-        # If we don't have a target, lock onto this one
+        # If we don't have a locked target, select the best one using score only
         if self.current_target is None:
+            best_target = self.get_best_target(include_distance=False)
+            if best_target is None:
+                print("[DEBUG] No targets available, scanning left")
+                # Move camera left to scan for trees
+                pydirectinput.moveRel(-400, 0, relative=True)
+                sleep(0.3)
+                return False
+            
             self.current_target = best_target
             print(f"[DEBUG] Locked onto new target at: {self.current_target}")
         
-        # Use the best target position (it updates as we move the camera)
-        target_pos = best_target
+        # Once we have a locked target, use combined score (75% best, 25% distance)
+        if self.targets:
+            target_pos = self.get_best_target(include_distance=True)
+            if target_pos is None:
+                # No targets available, clear current target
+                print("[DEBUG] Lost all targets")
+                self.current_target = None
+                return False
+        else:
+            # No targets available, clear current target
+            print("[DEBUG] Lost all targets")
+            self.current_target = None
+            return False
+        
         center_x = self.window_w // 2
         center_y = self.window_h // 2
         dx = target_pos[0] - center_x
@@ -565,7 +589,7 @@ class McBot:
             
             # Move view up (except after the last iteration)
             if i < 3:
-                pydirectinput.moveRel(0, -250, relative=True)
+                pydirectinput.moveRel(0, -280, relative=True)
                 sleep(0.2)
         
         # Hold W for 0.7 second to move forward
