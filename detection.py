@@ -39,7 +39,7 @@ class Detection:
                     mean_brightness = cv.mean(cv.cvtColor(self.screenshot, cv.COLOR_BGR2GRAY))[0]
                     
                     if mean_brightness < 50:  # Image is very dark (nighttime only)
-                        print(f"[DEBUG] Dark conditions detected (brightness: {mean_brightness:.1f}), enhancing image")
+                        #print(f"[DEBUG] Dark conditions detected (brightness: {mean_brightness:.1f}), enhancing image")
                         # Strong brightness increase for nighttime
                         screenshot_to_process = cv.convertScaleAbs(self.screenshot, alpha=2.5, beta=50)
                     

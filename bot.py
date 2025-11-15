@@ -84,7 +84,7 @@ class McBot:
             # Define crop regions - now only showing coordinate numbers
             # LEFT side for targeted block coordinates
             y_left = 0
-            h_left = int(height * 0.03)
+            h_left = int(height * 0.027)
             x_left = 0
             w_left = int(width * 0.3)
             
@@ -151,20 +151,41 @@ class McBot:
                         continue
                 return coords
             
-            def get_most_common_coords(crop_image, num_samples=5):
-                """Read OCR multiple times and return most common coordinate values"""
+            def get_most_common_coords(crop_image, num_samples=10):
+                """Read OCR multiple times in parallel and return most common coordinate values"""
                 # Config to only read numbers
                 custom_config = r'--oem 3 --psm 6 '
                 
                 all_readings = []
-                for i in range(num_samples):
+                readings_lock = Lock()
+                
+                def ocr_worker(use_mc_lang=True):
+                    """Worker function to perform one OCR reading"""
                     try:
-                        text = pytesseract.image_to_string(crop_image, lang='mc', config=custom_config)
+                        if use_mc_lang:
+                            text = pytesseract.image_to_string(crop_image, lang='mc', config=custom_config)
+                        else:
+                            text = pytesseract.image_to_string(crop_image, config=custom_config)
                         coords = extract_numbers_only(text)
                         if len(coords) >= 3:
+                            readings_lock.acquire()
                             all_readings.append(tuple(coords[:3]))
+                            readings_lock.release()
                     except Exception as e:
                         pass
+                
+                # Create and start threads for parallel OCR
+                # 5 with mc language, 5 with default language
+                threads = []
+                for i in range(num_samples):
+                    use_mc = i < (num_samples // 2)  # First half uses mc, second half uses default
+                    t = Thread(target=ocr_worker, args=(use_mc,))
+                    t.start()
+                    threads.append(t)
+                
+                # Wait for all threads to complete
+                for t in threads:
+                    t.join()
                 
                 if not all_readings:
                     return None
@@ -183,7 +204,7 @@ class McBot:
             # Parse coordinates - extract numbers from the text
             # Split text and find strings containing digits
             # Use multi-sample OCR to get player coordinates from RIGHT side
-            player_coords_result = get_most_common_coords(crop_right, num_samples=5)
+            player_coords_result = get_most_common_coords(crop_right, num_samples=10)
             if player_coords_result is not None:
                 # Only update if coordinates are reasonable
                 if self.player_coords is None or self._coords_are_reasonable(player_coords_result, self.player_coords):
@@ -193,7 +214,7 @@ class McBot:
                     print(f"[DEBUG] Ignoring invalid player coords: {player_coords_result} (previous: {self.player_coords})")
             
             # Use multi-sample OCR to get targeted block coordinates from LEFT side
-            target_coords_result = get_most_common_coords(crop_left, num_samples=5)
+            target_coords_result = get_most_common_coords(crop_left, num_samples=10)
             if target_coords_result is not None:
                 # Only update if coordinates are reasonable
                 if self.target_block_coords is None or self._coords_are_reasonable(target_coords_result, self.target_block_coords):
@@ -240,7 +261,7 @@ class McBot:
             # Draw rectangles on the original image to show crop regions
             debug_img = screenshot.copy()
             y_left = 0
-            h_left = int(height * 0.03)
+            h_left = int(height * 0.027)
             x_left = 0
             w_left = int(width * 0.3)
             y_right = int(height * 0.025)
@@ -360,9 +381,9 @@ class McBot:
 
             elif self.state == BotState.MINING:
                 # Recenter cursor on target before mining
-                print("[DEBUG] Recentering cursor on target before mining")
+                #print("[DEBUG] Recentering cursor on target before mining")
                 if self.move_crosshair_to_target():
-                    print("[DEBUG] Cursor centered, starting mining")
+                    #print("[DEBUG] Cursor centered, starting mining")
                     if self.mine_tree():
                         print("[DEBUG] Mining complete, clearing target")
                         self.lock.acquire()
@@ -425,8 +446,11 @@ class McBot:
         # Always get the best target (recalculated each frame as detections update)
         best_target = self.get_best_target()
         if best_target is None:
-            print("[DEBUG] No targets available")
+            print("[DEBUG] No targets available, scanning left")
             self.current_target = None
+            # Move camera left to scan for trees
+            pydirectinput.moveRel(-400, 0, relative=True)
+            sleep(0.3)
             return False
         
         # If we don't have a target, lock onto this one
@@ -443,12 +467,12 @@ class McBot:
         
         # Calculate distance to target
         distance_to_center = (dx**2 + dy**2)**0.5
-        print(f"[DEBUG] Target at {target_pos}, center at ({center_x}, {center_y})")
-        print(f"[DEBUG] Offset: dx={dx}, dy={dy}, distance={distance_to_center:.1f}")
+       # print(f"[DEBUG] Target at {target_pos}, center at ({center_x}, {center_y})")
+        #print(f"[DEBUG] Offset: dx={dx}, dy={dy}, distance={distance_to_center:.1f}")
         
         # Check if we're close enough to center
         if abs(dx) < 10 and abs(dy) < 10:
-            print(f"[DEBUG] Crosshair centered on target (within 10 pixels)")
+            #print(f"[DEBUG] Crosshair centered on target (within 10 pixels)")
             return True
         
         # Move towards target
@@ -489,8 +513,8 @@ class McBot:
             print(f"[DEBUG] Horizontal distance to target: {self.target_distance:.2f} blocks (X: {dx:.1f}, Z: {dz:.1f}, Y: {dy:.1f})")
             
             # If we're close enough, we've reached the target
-            if self.target_distance <= 3.0:
-                print(f"[DEBUG] Reached target (within 3 blocks horizontally)")
+            if self.target_distance <= 3.5:
+                print(f"[DEBUG] Reached target (within 3.5 blocks horizontally)")
                 return True
         
         # Move forward if we're not at the target yet
@@ -539,12 +563,12 @@ class McBot:
             pydirectinput.mouseUp()
             sleep(0.3)
             
-            # Move view up slightly by dragging mouse down for a short time (except after the last iteration)
+            # Move view up (except after the last iteration)
             if i < 3:
-                pyautogui.drag(0, 5, duration=0.05)  # Small drag to adjust view upward
+                pydirectinput.moveRel(0, -250, relative=True)
                 sleep(0.2)
         
-        # Hold W for 1 second to move forward
+        # Hold W for 0.7 second to move forward
         print("[DEBUG] Moving forward")
         pydirectinput.keyDown('w')
         sleep(0.7)

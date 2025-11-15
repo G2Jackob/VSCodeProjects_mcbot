@@ -120,9 +120,8 @@ while True:
                 print(f"[DEBUG] Display error: {str(e)}")
     #print('FPS: {}'.format(1/(time() - loop_time + 0.0001)))
     loop_time = time()
-
     key = cv.waitKey(1)
-    if key == ord('q'):
+    if key == ord('q'): 
         wincap.stop()
         detector.stop()
         bot.stop()
