@@ -15,7 +15,6 @@ wincap = WindowCapture('Minecraft 1.21.10 - Singleplayer') #Name of the window t
 
 DEBUG = True
 
-
 detector = Detection('tree_detect_yolo.pt')
 vision_wood = Vision(None)
 vision_wood.set_screen_center(wincap.w // 2, wincap.h // 2)
@@ -116,10 +115,10 @@ while True:
                 
                 # Show debug info
                 cv.imshow('Minecraft Bot', debug_image)
-                print(f"[DEBUG] Found targets: {len(targets)}")
+                #print(f"[DEBUG] Found targets: {len(targets)}")
             except Exception as e:
                 print(f"[DEBUG] Display error: {str(e)}")
-    print('FPS: {}'.format(1/(time() - loop_time + 0.0001)))
+    #print('FPS: {}'.format(1/(time() - loop_time + 0.0001)))
     loop_time = time()
 
     key = cv.waitKey(1)

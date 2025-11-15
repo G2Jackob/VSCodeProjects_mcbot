@@ -3,9 +3,14 @@ import pyautogui
 import pydirectinput
 from time import sleep, time
 from threading import Thread, Lock
+from collections import Counter
 import random
 import pytesseract
 import re
+import numpy as np
+
+# Configure tesseract path 
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 class BotState:
     INITIALIZING = 0
@@ -50,79 +55,209 @@ class McBot:
         self.wood_tooltip = cv.imread('wood_tooltip.jpg', cv.IMREAD_UNCHANGED)
         
     def read_f3_coordinates(self, screenshot):
-        """Read player and targeted block coordinates from F3 debug screen with improved OCR"""
+        """Read player and targeted block coordinates from F3 debug screen using multi-sample OCR"""
         try:
-            # Convert screenshot to grayscale for better OCR
-            gray = cv.cvtColor(screenshot, cv.COLOR_BGR2GRAY)
-            height, width = gray.shape
+            # Add debug OCR processing call at the start
+            self.debug_ocr_processing(screenshot, 'ocr_debug.png')
             
-            # Check brightness and enhance if needed
-            mean_brightness = cv.mean(gray)[0]
-            if mean_brightness < 80:  # Dark conditions
-                print(f"[DEBUG] Dark OCR conditions (brightness: {mean_brightness:.1f}), enhancing")
-                # Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
-                clahe = cv.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
-                gray = clahe.apply(gray)
+            height, width = screenshot.shape[:2]
             
-            # Apply stronger thresholding for Minecraft's white text
-            _, thresh = cv.threshold(gray, 180, 255, cv.THRESH_BINARY)
+            # Convert BGR to HSV for better color isolation
+            hsv_image = cv.cvtColor(screenshot, cv.COLOR_BGR2HSV)
             
-            # Scale up the image for better OCR (Minecraft font is small)
-            scale_factor = 2
+            # Define color range for Minecraft's white/light gray text
+            color_lower = np.array([0, 0, 150])
+            color_upper = np.array([180, 80, 255])
             
-            # Read from LEFT side for "Targeted Block:"
-            roi_left = thresh[0:height//2, 0:width//3]
-            roi_left_scaled = cv.resize(roi_left, None, fx=scale_factor, fy=scale_factor, interpolation=cv.INTER_CUBIC)
-            text_left = pytesseract.image_to_string(roi_left_scaled, config='--psm 6')
+            # Create mask to isolate the text
+            mask = cv.inRange(hsv_image, color_lower, color_upper)
             
-            # Read from RIGHT side for player "Block:" coordinates  
-            roi_right = thresh[0:height//2, 2*width//3:width]
-            roi_right_scaled = cv.resize(roi_right, None, fx=scale_factor, fy=scale_factor, interpolation=cv.INTER_CUBIC)
-            text_right = pytesseract.image_to_string(roi_right_scaled, config='--psm 6')
+            # Apply mask to get only the text
+            result = cv.bitwise_and(screenshot, screenshot, mask=mask)
             
-            # Parse player Block coordinates from RIGHT side (spaces only, no commas)
-            # Look for "Block:" followed by 3 numbers separated by spaces
-            block_pattern = r'Block:\s*(-?\d+)\s+(-?\d+)\s+(-?\d+)'
-            block_match = re.search(block_pattern, text_right)
-            if block_match:
-                new_coords = (int(block_match.group(1)), 
-                             int(block_match.group(2)), 
-                             int(block_match.group(3)))
-                # Only update if coordinates are reasonable (not wildly different)
-                if self.player_coords is None or self._coords_are_reasonable(new_coords, self.player_coords):
-                    self.player_coords = new_coords
+            # Convert to grayscale
+            gray = cv.cvtColor(result, cv.COLOR_BGR2GRAY)
+            
+            # Apply threshold to get black and white image
+            _, thresh = cv.threshold(gray, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU)
+            
+            # Define crop regions - now only showing coordinate numbers
+            # LEFT side for targeted block coordinates
+            y_left = 0
+            h_left = int(height * 0.03)
+            x_left = 0
+            w_left = int(width * 0.3)
+            
+            # RIGHT side for player block coordinates
+            y_right = int(height * 0.025)
+            h_right = int(height * 0.025)
+            x_right = int(width * 0.7)
+            w_right = int(width * 0.3)
+            
+            # Crop the regions
+            crop_left = thresh[y_left:y_left+h_left, x_left:x_left+w_left]
+            crop_right = thresh[y_right:y_right+h_right, x_right:x_right+w_right]
+            
+            # Enhance images for better OCR
+            crop_left = cv.bitwise_not(crop_left)
+            crop_right = cv.bitwise_not(crop_right)
+            
+            # Apply morphological operations to clean up text
+            kernel = np.ones((2, 2), np.uint8)
+            crop_left = cv.morphologyEx(crop_left, cv.MORPH_CLOSE, kernel)
+            crop_right = cv.morphologyEx(crop_right, cv.MORPH_CLOSE, kernel)
+            
+            # Multi-sample OCR: Read 10 times and pick most common results
+            def extract_numbers_only(text):
+                """Extract only numbers (including negative) from OCR text"""
+                # First try to find numbers with separators (spaces, commas, etc.)
+                number_pattern = r'-?\d+'
+                matches = re.findall(number_pattern, text)
+                
+                # If we got less than 3 numbers, text might be concatenated like "-5467-371" or "-5967-4"
+                # Try to split it intelligently
+                if len(matches) < 3 and len(text.strip()) > 0:
+                    text_clean = text.strip().replace(' ', '')
+                    
+                    # For concatenated coordinates like "-5467-371" or "-5967-4"
+                    # This is likely: X (negative, 2-3 digits), Y (positive, 2 digits), Z (negative, 1-3 digits)
+                    # Pattern: -XX YY -Z or -XX YY -ZZ or -XXX YY -ZZZ
+                    
+                    # Try multiple patterns with varying Z length
+                    patterns = [
+                        r'^(-\d{2,3})(\d{2})(-\d{1,3})$',  # Most flexible
+                        r'^(-\d{2})(\d{2})(-\d{1,3})$',    # 2-digit X
+                        r'^(-\d{3})(\d{2})(-\d{1,3})$',    # 3-digit X
+                    ]
+                    
+                    for pattern in patterns:
+                        match = re.match(pattern, text_clean)
+                        if match:
+                            try:
+                                x = int(match.group(1))
+                                y = int(match.group(2))
+                                z = int(match.group(3))
+                                print(f"[DEBUG] Parsed concatenated coords: X={x}, Y={y}, Z={z}")
+                                return [x, y, z]
+                            except ValueError:
+                                continue
+                
+                # Otherwise use the original matches
+                coords = []
+                for match in matches:
+                    try:
+                        coords.append(int(match))
+                    except ValueError:
+                        continue
+                return coords
+            
+            def get_most_common_coords(crop_image, num_samples=5):
+                """Read OCR multiple times and return most common coordinate values"""
+                # Config to only read numbers
+                custom_config = r'--oem 3 --psm 6 '
+                
+                all_readings = []
+                for i in range(num_samples):
+                    try:
+                        text = pytesseract.image_to_string(crop_image, lang='mc', config=custom_config)
+                        coords = extract_numbers_only(text)
+                        if len(coords) >= 3:
+                            all_readings.append(tuple(coords[:3]))
+                    except Exception as e:
+                        pass
+                
+                if not all_readings:
+                    return None
+                
+                # Find most common value for each coordinate position
+                x_values = [reading[0] for reading in all_readings]
+                y_values = [reading[1] for reading in all_readings]
+                z_values = [reading[2] for reading in all_readings]
+                
+                most_common_x = Counter(x_values).most_common(1)[0][0]
+                most_common_y = Counter(y_values).most_common(1)[0][0]
+                most_common_z = Counter(z_values).most_common(1)[0][0]
+                
+                return (most_common_x, most_common_y, most_common_z)
+            
+            # Parse coordinates - extract numbers from the text
+            # Split text and find strings containing digits
+            # Use multi-sample OCR to get player coordinates from RIGHT side
+            player_coords_result = get_most_common_coords(crop_right, num_samples=5)
+            if player_coords_result is not None:
+                # Only update if coordinates are reasonable
+                if self.player_coords is None or self._coords_are_reasonable(player_coords_result, self.player_coords):
+                    self.player_coords = player_coords_result
                     print(f"[DEBUG] Player Block Coordinates: {self.player_coords}")
                 else:
-                    print(f"[DEBUG] Ignoring invalid player coords: {new_coords} (previous: {self.player_coords})")
+                    print(f"[DEBUG] Ignoring invalid player coords: {player_coords_result} (previous: {self.player_coords})")
             
-            # Parse Targeted Block coordinates from LEFT side (with commas)
-            target_pattern = r'Targeted Block:\s*(-?\d+)[,\s]+(-?\d+)[,\s]+(-?\d+)'
-            target_match = re.search(target_pattern, text_left)
-            if target_match:
-                new_coords = (int(target_match.group(1)), 
-                             int(target_match.group(2)), 
-                             int(target_match.group(3)))
+            # Use multi-sample OCR to get targeted block coordinates from LEFT side
+            target_coords_result = get_most_common_coords(crop_left, num_samples=5)
+            if target_coords_result is not None:
                 # Only update if coordinates are reasonable
-                if self.target_block_coords is None or self._coords_are_reasonable(new_coords, self.target_block_coords):
-                    self.target_block_coords = new_coords
+                if self.target_block_coords is None or self._coords_are_reasonable(target_coords_result, self.target_block_coords):
+                    self.target_block_coords = target_coords_result
                     print(f"[DEBUG] Targeted Block Coordinates: {self.target_block_coords}")
                 else:
-                    print(f"[DEBUG] Ignoring invalid target coords: {new_coords} (previous: {self.target_block_coords})")
+                    print(f"[DEBUG] Ignoring invalid target coords: {target_coords_result} (previous: {self.target_block_coords})")
+                    print(f"[DEBUG] Clearing target and going back to searching due to invalid coordinates")
+                    self.target_block_coords = None
             
             return self.player_coords is not None or self.target_block_coords is not None
             
         except Exception as e:
             print(f"[DEBUG] Error reading F3 coordinates: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def _coords_are_reasonable(self, new_coords, old_coords):
         """Check if new coordinates are reasonable compared to old ones"""
-        # Allow up to 10 blocks difference per coordinate (player can't move that fast)
-        max_diff = 10
+        # Allow up to 20 blocks difference per coordinate (player can't move that fast)
+        max_diff = 20
         for i in range(3):
             if abs(new_coords[i] - old_coords[i]) > max_diff:
                 return False
         return True
+    
+    def debug_ocr_processing(self, screenshot, save_path='ocr_debug.png'):
+        """Save a debug image showing what the OCR is processing (optional, for troubleshooting)"""
+        try:
+            height, width = screenshot.shape[:2]
+            
+            # Convert BGR to HSV
+            hsv_image = cv.cvtColor(screenshot, cv.COLOR_BGR2HSV)
+            
+            # Apply mask
+            color_lower = np.array([0, 0, 200])
+            color_upper = np.array([180, 50, 255])
+            mask = cv.inRange(hsv_image, color_lower, color_upper)
+            result = cv.bitwise_and(screenshot, screenshot, mask=mask)
+            gray = cv.cvtColor(result, cv.COLOR_BGR2GRAY)
+            _, thresh = cv.threshold(gray, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU)
+            
+            # Draw rectangles on the original image to show crop regions
+            debug_img = screenshot.copy()
+            y_left = 0
+            h_left = int(height * 0.03)
+            x_left = 0
+            w_left = int(width * 0.3)
+            y_right = int(height * 0.025)
+            h_right = int(height * 0.025)
+            x_right = int(width * 0.7)
+            w_right = int(width * 0.3)
+            
+            cv.rectangle(debug_img, (x_left, y_left), (x_left+w_left, y_left+h_left), (0, 255, 0), 2)
+            cv.rectangle(debug_img, (x_right, y_right), (x_right+w_right, y_right+h_right), (0, 0, 255), 2)
+            
+            # Create a side-by-side comparison
+            combined = np.hstack([debug_img, cv.cvtColor(thresh, cv.COLOR_GRAY2BGR)])
+            cv.imwrite(save_path, combined)
+            print(f"[DEBUG] OCR debug image saved to {save_path}")
+            
+        except Exception as e:
+            print(f"[DEBUG] Error creating debug image: {str(e)}")
     
     def get_best_target(self):
         """Find the best target based on confidence and size combined"""
@@ -244,9 +379,12 @@ class McBot:
                     self.lock.release()
                     
             elif self.state == BotState.MOVING:
-                # Press F3 to show debug info and read coordinates
+                # Store the original target block coordinates
+                original_target_coords = self.target_block_coords
+                
+                # Show F3 debug info and wait for fresh screenshot
                 pydirectinput.press('F3')
-                sleep(0.3)
+                sleep(0.5)  # Increased delay to ensure F3 is displayed and captured
                 
                 # Read coordinates from current screenshot
                 if self.screenshot is not None:
@@ -254,7 +392,19 @@ class McBot:
                 
                 # Hide F3 debug info
                 pydirectinput.press('F3')
-                sleep(0.2)
+                sleep(0.3)  # Increased delay
+                
+                # Check if target block changed (OCR read wrong coordinates)
+                if original_target_coords is not None and self.target_block_coords is not None:
+                    if original_target_coords != self.target_block_coords:
+                        print(f"[DEBUG] Target block changed from {original_target_coords} to {self.target_block_coords}, going back to searching")
+                        self.lock.acquire()
+                        self.state = BotState.SEARCHING
+                        self.current_target = None
+                        self.target_block_coords = None
+                        self.lock.release()
+                        sleep(0.1)
+                        continue
                 
                 if self.move_to_target():
                     print("[DEBUG] Reached target, starting mining")
@@ -361,11 +511,11 @@ class McBot:
         
         # Read new position via F3
         pydirectinput.press('F3')
-        sleep(0.3)
+        sleep(0.5)  # Increased delay to ensure F3 is displayed and captured
         if self.screenshot is not None:
             self.read_f3_coordinates(self.screenshot)
         pydirectinput.press('F3')
-        sleep(0.2)
+        sleep(0.3)  # Increased delay
         
         if self.player_coords is None:
             return False
@@ -381,12 +531,25 @@ class McBot:
     def mine_tree(self):
         print("[DEBUG] Starting mining sequence")
         
-        # Single mining action
-        pydirectinput.mouseDown()
-        sleep(3.0)
-        pydirectinput.mouseUp()
-        sleep(0.5)
+        # Mine 4 times, moving view up slightly between each mining action
+        for i in range(4):
+            print(f"[DEBUG] Mining iteration {i+1}/4")
+            pydirectinput.mouseDown()
+            sleep(3.2)
+            pydirectinput.mouseUp()
+            sleep(0.3)
+            
+            # Move view up slightly by dragging mouse down for a short time (except after the last iteration)
+            if i < 3:
+                pyautogui.drag(0, 5, duration=0.05)  # Small drag to adjust view upward
+                sleep(0.2)
         
+        # Hold W for 1 second to move forward
+        print("[DEBUG] Moving forward")
+        pydirectinput.keyDown('w')
+        sleep(0.7)
+        pydirectinput.keyUp('w')
+        sleep(0.3)
         
-        
+        print("[DEBUG] Mining sequence complete")
         return True
