@@ -84,19 +84,23 @@ class McBot:
             # Define crop regions - now only showing coordinate numbers
             # LEFT side for targeted block coordinates
             y_left = 0
-            h_left = int(height * 0.027)
+            h_left = int(height * 0.035)
             x_left = 0
-            w_left = int(width * 0.3)
+            w_left = int(width * 0.4)
             
             # RIGHT side for player block coordinates
-            y_right = int(height * 0.025)
-            h_right = int(height * 0.025)
-            x_right = int(width * 0.7)
-            w_right = int(width * 0.3)
+            y_right = int(height * 0.038)
+            h_right = int(height * 0.04)
+            x_right = int(width * 0.80)
+            w_right = int(width * 0.20)
             
             # Crop the regions
             crop_left = thresh[y_left:y_left+h_left, x_left:x_left+w_left]
             crop_right = thresh[y_right:y_right+h_right, x_right:x_right+w_right]
+            
+            # Save crops to file for debugging
+            cv.imwrite('crop_left.png', crop_left)
+            cv.imwrite('crop_right.png', crop_right)
             
             # Enhance images for better OCR
             crop_left = cv.bitwise_not(crop_left)
@@ -151,7 +155,7 @@ class McBot:
                         continue
                 return coords
             
-            def get_most_common_coords(crop_image, num_samples=10):
+            def get_most_common_coords(crop_image, num_samples=11, reverse_order=False, lang='mc'):
                 """Read OCR multiple times in parallel and return most common coordinate values"""
                 # Config to only read numbers
                 custom_config = r'--oem 3 --psm 6 '
@@ -159,14 +163,26 @@ class McBot:
                 all_readings = []
                 readings_lock = Lock()
                 
-                def ocr_worker(use_mc_lang=True):
+                def ocr_worker():
                     """Worker function to perform one OCR reading"""
                     try:
-                        if use_mc_lang:
-                            text = pytesseract.image_to_string(crop_image, lang='mc', config=custom_config)
-                        else:
-                            text = pytesseract.image_to_string(crop_image, config=custom_config)
+                        text = pytesseract.image_to_string(crop_image, lang=lang, config=custom_config)
+                        
+                        # Remove commas if reverse_order (right side)
+                        if reverse_order:
+                            text = text.replace(',', '')
+                            # Replace 'i' with '1' for eng language (right side)
+                            text = text.replace('i', '1').replace('I', '1')
+                        
+                        print(f"[DEBUG] OCR Text: {text.strip()}")
                         coords = extract_numbers_only(text)
+                        
+                        # Handle right side (reverse_order) specially
+                        if reverse_order and len(coords) >= 4:
+                            # When 4 numbers detected, use indices 1, 2, 3 (2nd, 3rd, 4th)
+                            coords = [coords[1], coords[2], coords[3]]
+                            print(f"[DEBUG] Right side: 4 numbers detected, using indices 1,2,3: {coords}")
+                        
                         if len(coords) >= 3:
                             readings_lock.acquire()
                             all_readings.append(tuple(coords[:3]))
@@ -175,11 +191,9 @@ class McBot:
                         pass
                 
                 # Create and start threads for parallel OCR
-                # 5 with mc language, 5 with default language
                 threads = []
                 for i in range(num_samples):
-                    use_mc = i < (num_samples // 2)  # First half uses mc, second half uses default
-                    t = Thread(target=ocr_worker, args=(use_mc,))
+                    t = Thread(target=ocr_worker)
                     t.start()
                     threads.append(t)
                 
@@ -195,16 +209,25 @@ class McBot:
                 y_values = [reading[1] for reading in all_readings]
                 z_values = [reading[2] for reading in all_readings]
                 
-                most_common_x = Counter(x_values).most_common(1)[0][0]
-                most_common_y = Counter(y_values).most_common(1)[0][0]
-                most_common_z = Counter(z_values).most_common(1)[0][0]
+                def get_most_common_with_tie_breaker(values):
+                    """Get most common value, if tie then choose the number with more digits"""
+                    counter = Counter(values)
+                    max_count = counter.most_common(1)[0][1]
+                    # Get all values with the max count
+                    tied_values = [val for val, count in counter.items() if count == max_count]
+                    # Return the value with the most digits (longer number)
+                    return max(tied_values, key=lambda x: len(str(abs(x))))
+                
+                most_common_x = get_most_common_with_tie_breaker(x_values)
+                most_common_y = get_most_common_with_tie_breaker(y_values)
+                most_common_z = get_most_common_with_tie_breaker(z_values)
                 
                 return (most_common_x, most_common_y, most_common_z)
             
             # Parse coordinates - extract numbers from the text
             # Split text and find strings containing digits
-            # Use multi-sample OCR to get player coordinates from RIGHT side
-            player_coords_result = get_most_common_coords(crop_right, num_samples=10)
+            # Use multi-sample OCR to get player coordinates from RIGHT side with eng language
+            player_coords_result = get_most_common_coords(crop_right, num_samples=10, reverse_order=True, lang='eng')
             if player_coords_result is not None:
                 # Only update if coordinates are reasonable
                 if self.player_coords is None or self._coords_are_reasonable(player_coords_result, self.player_coords):
@@ -213,8 +236,8 @@ class McBot:
                 else:
                     print(f"[DEBUG] Ignoring invalid player coords: {player_coords_result} (previous: {self.player_coords})")
             
-            # Use multi-sample OCR to get targeted block coordinates from LEFT side
-            target_coords_result = get_most_common_coords(crop_left, num_samples=10)
+            # Use multi-sample OCR to get targeted block coordinates from LEFT side with mc language
+            target_coords_result = get_most_common_coords(crop_left, num_samples=10, lang='mc')
             if target_coords_result is not None:
                 # Only update if coordinates are reasonable
                 if self.target_block_coords is None or self._coords_are_reasonable(target_coords_result, self.target_block_coords):
@@ -261,13 +284,13 @@ class McBot:
             # Draw rectangles on the original image to show crop regions
             debug_img = screenshot.copy()
             y_left = 0
-            h_left = int(height * 0.027)
+            h_left = int(height * 0.035)
             x_left = 0
-            w_left = int(width * 0.3)
-            y_right = int(height * 0.025)
-            h_right = int(height * 0.025)
-            x_right = int(width * 0.7)
-            w_right = int(width * 0.3)
+            w_left = int(width * 0.4)
+            y_right = int(height * 0.038)
+            h_right = int(height * 0.04)
+            x_right = int(width * 0.80)
+            w_right = int(width * 0.20)
             
             cv.rectangle(debug_img, (x_left, y_left), (x_left+w_left, y_left+h_left), (0, 255, 0), 2)
             cv.rectangle(debug_img, (x_right, y_right), (x_right+w_right, y_right+h_right), (0, 0, 255), 2)
@@ -301,10 +324,8 @@ class McBot:
                 dx = x - center_x
                 dy = y - center_y
                 distance = (dx**2 + dy**2)**0.5
-                # Normalize distance (assume max relevant distance is 500 pixels)
-                distance_score = max(0, 500 - distance)
-                # Combine: 75% best score, 25% distance score
-                score = (base_score * 0.5) + (distance_score * 0.5)
+                distance_score = max(0, 5000 - distance)
+                score = (base_score * 0.05) + (distance_score * 0.95)
             else:
                 score = base_score
             
@@ -429,6 +450,17 @@ class McBot:
                 pydirectinput.press('F3')
                 sleep(0.3)  # Increased delay
                 
+                # Check if OCR failed to read coordinates (returned None)
+                if self.target_block_coords is None or self.player_coords is None:
+                    print(f"[DEBUG] OCR failed to read coordinates (Target: {self.target_block_coords}, Player: {self.player_coords}), going back to searching")
+                    self.lock.acquire()
+                    self.state = BotState.SEARCHING
+                    self.current_target = None
+                    self.target_block_coords = None
+                    self.lock.release()
+                    sleep(0.1)
+                    continue
+                
                 # Check if target block changed (OCR read wrong coordinates)
                 if original_target_coords is not None and self.target_block_coords is not None:
                     if original_target_coords != self.target_block_coords:
@@ -456,31 +488,20 @@ class McBot:
             sleep(0.1)
 
     def move_crosshair_to_target(self):
-        """Move crosshair to target with best confidence"""
-        # If we don't have a locked target, select the best one using score only
-        if self.current_target is None:
-            best_target = self.get_best_target(include_distance=False)
-            if best_target is None:
-                print("[DEBUG] No targets available, scanning left")
-                # Move camera left to scan for trees
-                pydirectinput.moveRel(-400, 0, relative=True)
-                sleep(0.3)
-                return False
-            
-            self.current_target = best_target
-            print(f"[DEBUG] Locked onto new target at: {self.current_target}")
-        
-        # Once we have a locked target, use combined score (75% best, 25% distance)
+        """Move crosshair to target using combined score (75% best, 25% distance)"""
+        # Always use combined score with distance weighting
         if self.targets:
             target_pos = self.get_best_target(include_distance=True)
-            if target_pos is None:
-                # No targets available, clear current target
-                print("[DEBUG] Lost all targets")
+            if target_pos:
+                self.current_target = target_pos
+            else:
+                print("[DEBUG] No valid target found")
                 self.current_target = None
                 return False
         else:
-            # No targets available, clear current target
-            print("[DEBUG] Lost all targets")
+            print("[DEBUG] No targets found, scanning left")
+            pydirectinput.moveRel(-400, 0, relative=True)
+            sleep(0.3)
             self.current_target = None
             return False
         
@@ -589,7 +610,7 @@ class McBot:
             
             # Move view up (except after the last iteration)
             if i < 3:
-                pydirectinput.moveRel(0, -280, relative=True)
+                pydirectinput.moveRel(0, -300, relative=True)
                 sleep(0.2)
         
         # Hold W for 0.7 second to move forward
