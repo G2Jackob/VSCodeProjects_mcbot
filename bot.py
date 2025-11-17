@@ -66,8 +66,9 @@ class McBot:
             hsv_image = cv.cvtColor(screenshot, cv.COLOR_BGR2HSV)
             
             # Define color range for Minecraft's white/light gray text
-            color_lower = np.array([0, 0, 150])
-            color_upper = np.array([180, 80, 255])
+            # Higher saturation threshold to exclude sky (white text has low saturation)
+            color_lower = np.array([0, 0, 200])
+            color_upper = np.array([180, 30, 255])
             
             # Create mask to isolate the text
             mask = cv.inRange(hsv_image, color_lower, color_upper)
@@ -84,7 +85,7 @@ class McBot:
             # Define crop regions - now only showing coordinate numbers
             # LEFT side for targeted block coordinates
             y_left = 0
-            h_left = int(height * 0.035)
+            h_left = int(height * 0.037)
             x_left = 0
             w_left = int(width * 0.4)
             
@@ -92,7 +93,7 @@ class McBot:
             y_right = int(height * 0.038)
             h_right = int(height * 0.04)
             x_right = int(width * 0.80)
-            w_right = int(width * 0.20)
+            w_right = int(width * 0.19)
             
             # Crop the regions
             crop_left = thresh[y_left:y_left+h_left, x_left:x_left+w_left]
@@ -114,51 +115,39 @@ class McBot:
             # Multi-sample OCR: Read 10 times and pick most common results
             def extract_numbers_only(text):
                 """Extract only numbers (including negative) from OCR text"""
-                # First try to find numbers with separators (spaces, commas, etc.)
-                number_pattern = r'-?\d+'
-                matches = re.findall(number_pattern, text)
+                # Find all minus signs and their positions to determine which numbers should be negative
+                # Look for patterns like "- S52" or "-S52" and extract just the number with minus
                 
-                # If we got less than 3 numbers, text might be concatenated like "-5467-371" or "-5967-4"
-                # Try to split it intelligently
-                if len(matches) < 3 and len(text.strip()) > 0:
-                    text_clean = text.strip().replace(' ', '')
-                    
-                    # For concatenated coordinates like "-5467-371" or "-5967-4"
-                    # This is likely: X (negative, 2-3 digits), Y (positive, 2 digits), Z (negative, 1-3 digits)
-                    # Pattern: -XX YY -Z or -XX YY -ZZ or -XXX YY -ZZZ
-                    
-                    # Try multiple patterns with varying Z length
-                    patterns = [
-                        r'^(-\d{2,3})(\d{2})(-\d{1,3})$',  # Most flexible
-                        r'^(-\d{2})(\d{2})(-\d{1,3})$',    # 2-digit X
-                        r'^(-\d{3})(\d{2})(-\d{1,3})$',    # 3-digit X
-                    ]
-                    
-                    for pattern in patterns:
-                        match = re.match(pattern, text_clean)
-                        if match:
-                            try:
-                                x = int(match.group(1))
-                                y = int(match.group(2))
-                                z = int(match.group(3))
-                                print(f"[DEBUG] Parsed concatenated coords: X={x}, Y={y}, Z={z}")
-                                return [x, y, z]
-                            except ValueError:
-                                continue
+                # Pattern to find minus followed by optional letters/space then digits
+                minus_pattern = r'-\s*[A-Za-z]*\s*(\d+)'
+                minus_matches = re.finditer(minus_pattern, text)
                 
-                # Otherwise use the original matches
-                coords = []
-                for match in matches:
-                    try:
-                        coords.append(int(match))
-                    except ValueError:
-                        continue
-                return coords
+                # Extract negative numbers (with minus signs) with their positions
+                coords_with_pos = []
+                seen_positions = set()
+                
+                for match in minus_matches:
+                    number = -int(match.group(1))  # Make it negative
+                    coords_with_pos.append((match.start(), number))
+                    # Mark these character positions as used
+                    seen_positions.update(range(match.start(), match.end()))
+                
+                # Now find remaining positive numbers that weren't part of minus patterns
+                positive_pattern = r'\d+'
+                for match in re.finditer(positive_pattern, text):
+                    # Only add if this position wasn't already captured by minus pattern
+                    if match.start() not in seen_positions:
+                        coords_with_pos.append((match.start(), int(match.group())))
+                        seen_positions.update(range(match.start(), match.end()))
+                
+                # Sort by position in original text to maintain order
+                coords_with_pos.sort(key=lambda x: x[0])
+                return [num for pos, num in coords_with_pos]
             
-            def get_most_common_coords(crop_image, num_samples=10, reverse_order=False):
+            def get_most_common_coords(crop_image, num_samples=10):
                 """Read OCR multiple times in parallel and return most common coordinate values"""
                 # Config to only read numbers with mc2 language
-                custom_config = r'--oem 3 --psm 7 '
+                custom_config = r'--oem 1 --psm 7 '
                 
                 all_readings = []
                 readings_lock = Lock()
@@ -166,23 +155,21 @@ class McBot:
                 def ocr_worker():
                     """Worker function to perform one OCR reading"""
                     try:
-                        text = pytesseract.image_to_string(crop_image, lang='mc2', config=custom_config)
+                        text = pytesseract.image_to_string(crop_image, lang='mc4', config=custom_config)
                         
-                        # Remove commas
+                        # Remove commas and replace common OCR mistakes
                         text = text.replace(',', '')
+                        text = text.replace('S', '5').replace('s', '5')  # Replace S with 5
+                        text = text.replace('Q', '0')  # Replace Q with 0
                         
                         print(f"[DEBUG] OCR Text: {text.strip()}")
                         coords = extract_numbers_only(text)
                         
-                        # Handle right side (reverse_order) specially
-                        if reverse_order and len(coords) >= 4:
-                            # When 4 numbers detected, use indices 1, 2, 3 (2nd, 3rd, 4th)
-                            coords = [coords[1], coords[2], coords[3]]
-                            print(f"[DEBUG] Right side: 4 numbers detected, using indices 1,2,3: {coords}")
-                        
+                        # Always use the last 3 numbers as coordinates
                         if len(coords) >= 3:
+                            coords = coords[-3:]  # Take the last 3 numbers
                             readings_lock.acquire()
-                            all_readings.append(tuple(coords[:3]))
+                            all_readings.append(tuple(coords))
                             readings_lock.release()
                     except Exception as e:
                         pass
@@ -223,7 +210,7 @@ class McBot:
             
             # Parse coordinates - extract numbers from the text
             # Use multi-sample OCR with mc2 language for both sides
-            player_coords_result = get_most_common_coords(crop_right, num_samples=10, reverse_order=True)
+            player_coords_result = get_most_common_coords(crop_right, num_samples=10)
             if player_coords_result is not None:
                 # Only update if coordinates are reasonable
                 if self.player_coords is None or self._coords_are_reasonable(player_coords_result, self.player_coords):
@@ -231,6 +218,9 @@ class McBot:
                     print(f"[DEBUG] Player Block Coordinates: {self.player_coords}")
                 else:
                     print(f"[DEBUG] Ignoring invalid player coords: {player_coords_result} (previous: {self.player_coords})")
+                    pydirectinput.keyDown('w')
+                    sleep(0.2)
+                    pydirectinput.keyUp('w')
             
             # Use multi-sample OCR to get targeted block coordinates from LEFT side
             target_coords_result = get_most_common_coords(crop_left, num_samples=10)
@@ -243,6 +233,9 @@ class McBot:
                     print(f"[DEBUG] Ignoring invalid target coords: {target_coords_result} (previous: {self.target_block_coords})")
                     print(f"[DEBUG] Clearing target and going back to searching due to invalid coordinates")
                     self.target_block_coords = None
+                    pydirectinput.keyDown('w')
+                    sleep(0.2)
+                    pydirectinput.keyUp('w')
             
             return self.player_coords is not None or self.target_block_coords is not None
             
@@ -255,7 +248,7 @@ class McBot:
     def _coords_are_reasonable(self, new_coords, old_coords):
         """Check if new coordinates are reasonable compared to old ones"""
         # Allow up to 20 blocks difference per coordinate (player can't move that fast)
-        max_diff = 20
+        max_diff = 10000
         for i in range(3):
             if abs(new_coords[i] - old_coords[i]) > max_diff:
                 return False
@@ -313,15 +306,15 @@ class McBot:
         for target in self.targets:
             x, y, conf, size = target
             # Use raw size directly - bigger trees get higher scores
-            base_score = (conf) * (size * 0.3)
+            base_score = (conf) * (size * 0.01)
             
             if include_distance:
                 # Add distance component (25% weight, inverted so closer is better)
                 dx = x - center_x
                 dy = y - center_y
                 distance = (dx**2 + dy**2)**0.5
-                distance_score = max(0, 5000 - distance)
-                score = (base_score * 0.05) + (distance_score * 0.95)
+                distance_score = max(0, 500 - (distance))
+                score = (base_score * 0.4) + (distance_score * 0.6)
             else:
                 score = base_score
             
@@ -332,7 +325,7 @@ class McBot:
         
         best = targets_with_score[0]
         best_target = best[0]
-        print(f"[DEBUG] Selected target: pos=({best_target[0]}, {best_target[1]}), conf={best_target[2]:.2f}, size={best_target[3]}, score={best[1]:.2f}")
+        print(f"[DEBUG] Selected target: pos=({best_target[0]}, {best_target[1]}), conf={best_target[2]:.2f}, size={best_target[3]}, distance={distance:.2f}, score={best[1]:.2f}")
         print(f"[DEBUG] Total targets: {len(self.targets)}")
         
         # Return just (x, y) for compatibility
@@ -433,10 +426,11 @@ class McBot:
             elif self.state == BotState.MOVING:
                 # Store the original target block coordinates
                 original_target_coords = self.target_block_coords
+                original_player_coords = self.player_coords
                 
                 # Show F3 debug info and wait for fresh screenshot
                 pydirectinput.press('F3')
-                sleep(0.5)  # Increased delay to ensure F3 is displayed and captured
+                sleep(1.0)  # Longer delay to ensure F3 is displayed and captured
                 
                 # Read coordinates from current screenshot
                 if self.screenshot is not None:
@@ -444,7 +438,6 @@ class McBot:
                 
                 # Hide F3 debug info
                 pydirectinput.press('F3')
-                sleep(0.3)  # Increased delay
                 
                 # Check if OCR failed to read coordinates (returned None)
                 if self.target_block_coords is None or self.player_coords is None:
@@ -455,6 +448,27 @@ class McBot:
                     self.target_block_coords = None
                     self.lock.release()
                     sleep(0.1)
+                    continue
+                
+                # Calculate distance to check if OCR result is reasonable
+                dx = self.target_block_coords[0] - self.player_coords[0]
+                dz = self.target_block_coords[2] - self.player_coords[2]
+                distance = (dx**2 + dz**2)**0.5
+                
+                # If distance is over 100, discard and retry OCR
+                if distance > 100:
+                    print(f"[DEBUG] Distance too large ({distance:.2f} blocks), retrying OCR")
+                    # Move slightly to change screen view
+                    random_direction = random.choice(['a', 'd'])
+                    pydirectinput.keyDown(random_direction)
+                    sleep(0.15)
+                    pydirectinput.keyUp(random_direction)
+                    self.lock.acquire()
+                    self.target_block_coords = None
+                    self.player_coords = None
+                    self.current_target = None
+                    self.state = BotState.SEARCHING
+                    self.lock.release()
                     continue
                 
                 # Check if target block changed (OCR read wrong coordinates)
@@ -527,18 +541,6 @@ class McBot:
         
         return False  # Not yet centered
 
-    def targets_ordered_by_distance(self, targets):
-            center_x = self.window_w // 2
-            center_y = self.window_h // 2
-
-            def distance_to_target(target):
-                dx = target[0] - center_x
-                dy = target[1] - center_y
-                return (dx ** 2 + dy ** 2) ** 0.5
-
-            if targets:
-                targets = sorted(targets, key=distance_to_target)
-            return targets
 
 
     def move_to_target(self):
@@ -550,6 +552,9 @@ class McBot:
             dz = self.target_block_coords[2] - self.player_coords[2]
             # Calculate horizontal distance only (ignore Y coordinate)
             self.target_distance = (dx**2 + dz**2)**0.5
+            if self.target_distance > 1000:
+                print(f"[DEBUG] Unreasonable target distance ({self.target_distance:.2f} blocks), likely OCR error. Aborting move.")
+                return False
             
             print(f"[DEBUG] Horizontal distance to target: {self.target_distance:.2f} blocks (X: {dx:.1f}, Z: {dz:.1f}, Y: {dy:.1f})")
             
@@ -600,7 +605,7 @@ class McBot:
         for i in range(4):
             print(f"[DEBUG] Mining iteration {i+1}/4")
             pydirectinput.mouseDown()
-            sleep(3.2)
+            sleep(3.4)
             pydirectinput.mouseUp()
             sleep(0.3)
             
