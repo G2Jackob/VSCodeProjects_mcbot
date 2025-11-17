@@ -155,10 +155,10 @@ class McBot:
                         continue
                 return coords
             
-            def get_most_common_coords(crop_image, num_samples=11, reverse_order=False, lang='mc'):
+            def get_most_common_coords(crop_image, num_samples=10, reverse_order=False):
                 """Read OCR multiple times in parallel and return most common coordinate values"""
-                # Config to only read numbers
-                custom_config = r'--oem 3 --psm 6 '
+                # Config to only read numbers with mc2 language
+                custom_config = r'--oem 3 --psm 7 '
                 
                 all_readings = []
                 readings_lock = Lock()
@@ -166,13 +166,10 @@ class McBot:
                 def ocr_worker():
                     """Worker function to perform one OCR reading"""
                     try:
-                        text = pytesseract.image_to_string(crop_image, lang=lang, config=custom_config)
+                        text = pytesseract.image_to_string(crop_image, lang='mc2', config=custom_config)
                         
-                        # Remove commas if reverse_order (right side)
-                        if reverse_order:
-                            text = text.replace(',', '')
-                            # Replace 'i' with '1' for eng language (right side)
-                            text = text.replace('i', '1').replace('I', '1')
+                        # Remove commas
+                        text = text.replace(',', '')
                         
                         print(f"[DEBUG] OCR Text: {text.strip()}")
                         coords = extract_numbers_only(text)
@@ -225,9 +222,8 @@ class McBot:
                 return (most_common_x, most_common_y, most_common_z)
             
             # Parse coordinates - extract numbers from the text
-            # Split text and find strings containing digits
-            # Use multi-sample OCR to get player coordinates from RIGHT side with eng language
-            player_coords_result = get_most_common_coords(crop_right, num_samples=10, reverse_order=True, lang='eng')
+            # Use multi-sample OCR with mc2 language for both sides
+            player_coords_result = get_most_common_coords(crop_right, num_samples=10, reverse_order=True)
             if player_coords_result is not None:
                 # Only update if coordinates are reasonable
                 if self.player_coords is None or self._coords_are_reasonable(player_coords_result, self.player_coords):
@@ -236,8 +232,8 @@ class McBot:
                 else:
                     print(f"[DEBUG] Ignoring invalid player coords: {player_coords_result} (previous: {self.player_coords})")
             
-            # Use multi-sample OCR to get targeted block coordinates from LEFT side with mc language
-            target_coords_result = get_most_common_coords(crop_left, num_samples=10, lang='mc')
+            # Use multi-sample OCR to get targeted block coordinates from LEFT side
+            target_coords_result = get_most_common_coords(crop_left, num_samples=10)
             if target_coords_result is not None:
                 # Only update if coordinates are reasonable
                 if self.target_block_coords is None or self._coords_are_reasonable(target_coords_result, self.target_block_coords):
@@ -317,7 +313,7 @@ class McBot:
         for target in self.targets:
             x, y, conf, size = target
             # Use raw size directly - bigger trees get higher scores
-            base_score = (conf * 0.7) + (size * 0.3)
+            base_score = (conf) * (size * 0.3)
             
             if include_distance:
                 # Add distance component (25% weight, inverted so closer is better)

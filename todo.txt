@@ -1,10 +1,10 @@
 
 Done:
 + coords reading from F3
-+ moveing by coordinates
-+ Odering by best = (confidence * 0,7 + size *0,3) , then (0,95 * distance + 0,05 * best)
++ moveing by coordinates (custom OCR Tesseract model)
++ Odering by best = (confidence * size *0,3) , then (0,95 * distance[range 0-5000] + 0,05 * best)
 
 To fix:
-- Taking coordintes is buggy (sometmes the targeted block cords are wrong)
+- 
 - Works like shit in the night and rain
 - model sometiemes loses tagets when too close or mined
