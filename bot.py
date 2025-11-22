@@ -9,7 +9,7 @@ import pytesseract
 import re
 import numpy as np
 
-# Configure tesseract path 
+# Configure tesseract path, add mc3.traineddata to tesseract OCR\tessdata folder@
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 class BotState:
@@ -51,6 +51,7 @@ class McBot:
         self.target_block_coords = None
         self.current_target = None
         self.target_distance = None
+        self.searching_start_time = None  # Track how long we've been searching
 
         self.wood_tooltip = cv.imread('wood_tooltip.jpg', cv.IMREAD_UNCHANGED)
         
@@ -144,72 +145,33 @@ class McBot:
                 coords_with_pos.sort(key=lambda x: x[0])
                 return [num for pos, num in coords_with_pos]
             
-            def get_most_common_coords(crop_image, num_samples=10):
-                """Read OCR multiple times in parallel and return most common coordinate values"""
+            def get_coords_from_ocr(crop_image):
+                """Read OCR once and return coordinate values"""
                 custom_config = r'--oem 1 --psm 7 '
                 
-                all_readings = []
-                readings_lock = Lock()
+                try:
+                    text = pytesseract.image_to_string(crop_image, lang='mc3', config=custom_config)
+                    
+                    # Remove commas and replace common OCR mistakes
+                    text = text.replace(',', '')
+                    text = text.replace('S', '5').replace('s', '5')  # Replace S with 5
+                    text = text.replace('Q', '0')  # Replace Q with 0
+                    
+                    print(f"[DEBUG] OCR Text: {text.strip()}")
+                    coords = extract_numbers_only(text)
+                    
+                    # Always use the last 3 numbers as coordinates
+                    if len(coords) >= 3:
+                        coords = coords[-3:]  # Take the last 3 numbers
+                        return tuple(coords)
+                except Exception as e:
+                    print(f"[DEBUG] OCR error: {e}")
                 
-                def ocr_worker():
-                    """Worker function to perform one OCR reading"""
-                    try:
-                        text = pytesseract.image_to_string(crop_image, lang='mc3', config=custom_config)
-                        
-                        # Remove commas and replace common OCR mistakes
-                        text = text.replace(',', '')
-                        text = text.replace('S', '5').replace('s', '5')  # Replace S with 5
-                        text = text.replace('Q', '0')  # Replace Q with 0
-                        
-                        print(f"[DEBUG] OCR Text: {text.strip()}")
-                        coords = extract_numbers_only(text)
-                        
-                        # Always use the last 3 numbers as coordinates
-                        if len(coords) >= 3:
-                            coords = coords[-3:]  # Take the last 3 numbers
-                            readings_lock.acquire()
-                            all_readings.append(tuple(coords))
-                            readings_lock.release()
-                    except Exception as e:
-                        pass
-                
-                # Create and start threads for parallel OCR
-                threads = []
-                for i in range(num_samples):
-                    t = Thread(target=ocr_worker)
-                    t.start()
-                    threads.append(t)
-                
-                # Wait for all threads to complete
-                for t in threads:
-                    t.join()
-                
-                if not all_readings:
-                    return None
-                
-                # Find most common value for each coordinate position
-                x_values = [reading[0] for reading in all_readings]
-                y_values = [reading[1] for reading in all_readings]
-                z_values = [reading[2] for reading in all_readings]
-                
-                def get_most_common_with_tie_breaker(values):
-                    """Get most common value, if tie then choose the number with more digits"""
-                    counter = Counter(values)
-                    max_count = counter.most_common(1)[0][1]
-                    # Get all values with the max count
-                    tied_values = [val for val, count in counter.items() if count == max_count]
-                    # Return the value with the most digits (longer number)
-                    return max(tied_values, key=lambda x: len(str(abs(x))))
-                
-                most_common_x = get_most_common_with_tie_breaker(x_values)
-                most_common_y = get_most_common_with_tie_breaker(y_values)
-                most_common_z = get_most_common_with_tie_breaker(z_values)
-                
-                return (most_common_x, most_common_y, most_common_z)
+                return None
             
             # Parse coordinates - extract numbers from the text
-            # Use multi-sample OCR with mc2 language for both sides
-            player_coords_result = get_most_common_coords(crop_right, num_samples=10)
+            # Use single OCR reading for both sides
+            player_coords_result = get_coords_from_ocr(crop_right)
             if player_coords_result is not None:
                 # Only update if coordinates are reasonable
                 if self.player_coords is None or self._coords_are_reasonable(player_coords_result, self.player_coords):
@@ -221,8 +183,8 @@ class McBot:
                     sleep(0.2)
                     pydirectinput.keyUp('w')
             
-            # Use multi-sample OCR to get targeted block coordinates from LEFT side
-            target_coords_result = get_most_common_coords(crop_left, num_samples=10)
+            # Use single OCR reading to get targeted block coordinates from LEFT side
+            target_coords_result = get_coords_from_ocr(crop_left)
             if target_coords_result is not None:
                 # Only update if coordinates are reasonable
                 if self.target_block_coords is None or self._coords_are_reasonable(target_coords_result, self.target_block_coords):
@@ -333,24 +295,6 @@ class McBot:
         return (best_target[0], best_target[1])
 
 
-
-    def click_next_target(self):
-        if self.move_crosshair_to_target():
-            # Press F3 to show tooltip
-            pydirectinput.press('F3')
-            sleep(0.5)
-            
-            if self.confirm_tooltip(self.screenshot):
-              
-                sleep(0.2)
-                
-                return True
-            
-            pydirectinput.press('F3') 
-            sleep(0.2)
-        return False
-
-
     def have_stopped_moving(self):
         if self.movement_screenshot is None:
            self.movement_screenshot = self.screenshot.copy()
@@ -396,11 +340,25 @@ class McBot:
                     self.lock.release()
 
             elif self.state == BotState.SEARCHING:
+                # Start tracking time when entering SEARCHING state
+                if self.searching_start_time is None:
+                    self.searching_start_time = time()
+                
+                # Check if we've been searching for more than 5 seconds
+                if time() - self.searching_start_time > 5.0:
+                    print("[DEBUG] Been searching for 5s, moving randomly")
+                    direction = random.choice(['w', 'a', 's', 'd'])
+                    pydirectinput.keyDown(direction)
+                    sleep(0.7)
+                    pydirectinput.keyUp(direction)
+                    self.searching_start_time = time()  # Reset timer
+                
                 if self.move_crosshair_to_target():
                     print("[DEBUG] Crosshair centered, transitioning to MOVING")
                     sleep(0.2)    
                     self.lock.acquire()
                     self.state = BotState.MOVING
+                    self.searching_start_time = None  # Reset search timer
                     self.lock.release()
                     sleep(0.2)
 
@@ -599,28 +557,183 @@ class McBot:
         print(f"[DEBUG] Distance moved: {distance_moved:.2f} blocks")
         return distance_moved < 0.5  # Stuck if moved less than 0.5 blocks
 
+    def detect_wood_tooltip(self, screenshot):
+        """Detect wood tooltip in screenshot using OCR"""
+        try:
+            h, w = screenshot.shape[:2]
+            crop_x1 = int(w * 0.01)
+            crop_x2 = int(w * 0.3)
+            crop_y1 = int(h * 0.29)
+            crop_y2 = int(h * 0.325)
+            tooltip_area = screenshot[crop_y1:crop_y2, crop_x1:crop_x2]
+
+            #cv.rectangle(screenshot, (crop_x1, crop_y1), (crop_x2, crop_y2), (0, 255, 0), 2)
+
+            #cv.imwrite('tooltip_area.png', screenshot)
+            # Apply HSV filtering to isolate white text on dark background
+            hsv = cv.cvtColor(tooltip_area, cv.COLOR_BGR2HSV)
+            # White text: high value, low saturation
+            color_lower = np.array([0, 0, 200], dtype=np.uint8)
+            color_upper = np.array([180, 30, 255], dtype=np.uint8)
+            mask = cv.inRange(hsv, color_lower, color_upper)
+            
+            #cv.imwrite('tooltip_mask.png', mask)
+            # OCR on the filtered area
+            custom_config = r'--oem 1 --psm 7 -l mc3'
+            text = pytesseract.image_to_string(mask, config=custom_config)
+            text = text.strip().lower()
+            
+            # Look for wood-related keywords
+            wood_keywords = ['birch', 'oak', 'spruce', 'jungle', 'acacia', 'dark', 'log', 'wood']
+            detected = any(keyword in text for keyword in wood_keywords)
+            
+            if detected:
+                print(f"[DEBUG] Wood tooltip DETECTED! Text: '{text}'")
+            else:
+                print(f"[DEBUG] Wood tooltip not detected. Text: '{text}'")
+                pydirectinput.moveRel(0, -5, relative=True)
+            
+            return detected
+            
+        except Exception as e:
+            print(f"[DEBUG] Error detecting wood tooltip: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return False
+
     def mine_tree(self):
         print("[DEBUG] Starting mining sequence")
         
-        # Mine 4 times, moving view up slightly between each mining action
-        for i in range(4):
-            print(f"[DEBUG] Mining iteration {i+1}/4")
-            pydirectinput.mouseDown()
-            sleep(3.4)
-            pydirectinput.mouseUp()
-            sleep(0.3)
-            
-            # Move view up (except after the last iteration)
-            if i < 3:
-                pydirectinput.moveRel(0, -300, relative=True)
-                sleep(0.2)
+        # Press F3 to show debug info
+        pydirectinput.press('F3')
+        sleep(1.0)
         
-        # Hold W for 0.7 second to move forward
+        blocks_mined = 0
+        max_blocks = 20  # Safety limit
+        last_tooltip_time = time()
+        tooltip_timeout = 2.0  # 2 seconds without tooltip = done
+        previous_target_coords = None
+        
+        # Read initial target block coordinates
+        if self.screenshot is not None:
+            self.read_f3_coordinates(self.screenshot)
+            if self.target_block_coords:
+                previous_target_coords = self.target_block_coords
+                print(f"[DEBUG] Initial target coords: {previous_target_coords}")
+            
+        while blocks_mined < max_blocks:
+            if self.screenshot is not None:
+                # FIRST BLOCK: Just look for tooltip with 5px movements
+                if blocks_mined == 0:
+                    tooltip_found = self.detect_wood_tooltip(self.screenshot)
+                    
+                    if tooltip_found:
+                        print(f"[DEBUG] First block tooltip found, mining!")
+                        
+                        # Save coords before mining
+                        self.read_f3_coordinates(self.screenshot)
+                        coords_before_move = self.target_block_coords
+                        
+                        # Mine the block
+                        pydirectinput.mouseDown()
+                        sleep(3.4)
+                        pydirectinput.mouseUp()
+                        last_tooltip_time = time()
+                        blocks_mined += 1
+                        
+                        # Move up for next block
+                        movement = max(25, 150 - (blocks_mined * 25))
+                        print(f"[DEBUG] Moving up {movement}px to find next block")
+                        pydirectinput.moveRel(0, -movement, relative=True)
+                        
+                        # Save coords for comparison
+                        previous_target_coords = coords_before_move
+                    else:
+                        # No tooltip - move 5px up
+                        print(f"[DEBUG] No tooltip on first block, moving up 5px")
+                        pydirectinput.moveRel(0, -5, relative=True)
+                
+                # SUBSEQUENT BLOCKS: Move with calculated amount, check tooltip, then check coords
+                else:
+                    tooltip_found = self.detect_wood_tooltip(self.screenshot)
+                    
+                    if tooltip_found:
+                        print(f"[DEBUG] Tooltip found, checking coordinates")
+                        
+                        # Check if coordinates are correct
+                        self.read_f3_coordinates(self.screenshot)
+                        if self.target_block_coords and previous_target_coords is not None:
+                            prev_x, prev_y, prev_z = previous_target_coords
+                            curr_x, curr_y, curr_z = self.target_block_coords
+                            
+                            x_diff = curr_x - prev_x
+                            y_diff = curr_y - prev_y
+                            z_diff = curr_z - prev_z
+                            
+                            print(f"[DEBUG] Target coords X:{prev_x}→{curr_x} ({x_diff:+d}), Y:{prev_y}→{curr_y} ({y_diff:+d}), Z:{prev_z}→{curr_z} ({z_diff:+d})")
+                            
+                            # Check if only Y increased by 1 and X,Z stayed the same
+                            if x_diff == 0 and y_diff == 1 and z_diff == 0:
+                                print(f"[DEBUG] Coordinates correct! Mining block {blocks_mined + 1}")
+                                
+                                # Save coords before mining
+                                coords_before_move = self.target_block_coords
+                                
+                                # Mine the block
+                                pydirectinput.mouseDown()
+                                sleep(3.4)
+                                pydirectinput.mouseUp()
+                                last_tooltip_time = time()
+                                blocks_mined += 1
+                                
+                                # Move up for next block
+                                if blocks_mined < max_blocks:
+                                    movement = max(25, 150 - (blocks_mined * 25))
+                                    print(f"[DEBUG] Moving up {movement}px to find next block")
+                                    pydirectinput.moveRel(0, -movement, relative=True)
+                                    
+                                    # Save coords for next comparison
+                                    previous_target_coords = coords_before_move
+                            else:
+                                # Coords not correct - move again with same amount
+                                movement = max(25, 150 - (blocks_mined * 25))
+                                print(f"[DEBUG] Coords not correct, moving up {movement}px again")
+                                pydirectinput.moveRel(0, -movement, relative=True)
+                        else:
+                            print(f"[DEBUG] Could not read coordinates")
+                    else:
+                        # No tooltip - move again with calculated amount
+                        movement = max(25, 150 - (blocks_mined * 25))
+                        print(f"[DEBUG] No tooltip, moving up {movement}px")
+                        pydirectinput.moveRel(0, -movement, relative=True)
+                        
+                        # Check timeout
+                        if time() - last_tooltip_time > tooltip_timeout:
+                            print(f"[DEBUG] No tooltip for {tooltip_timeout}s, mining complete")
+                            break
+            else:
+                print("[DEBUG] No screenshot available")
+                sleep(0.1)
+        
+        # Hide F3
+        pydirectinput.press('F3')
+        sleep(0.3)
+        
+        # Move mouse back down - sum up all the movements we made going up
+        print("[DEBUG] Moving mouse back down")
+        total_movement = 0
+        for i in range(1, blocks_mined + 1):
+            total_movement += max(25, 150 - (i * 25))
+        
+        if total_movement > 0:
+            pydirectinput.moveRel(0, total_movement, relative=True)
+            sleep(0.3)
+        
+        # Move forward after mining
         print("[DEBUG] Moving forward")
         pydirectinput.keyDown('w')
         sleep(0.7)
         pydirectinput.keyUp('w')
-        sleep(0.3)
         
-        print("[DEBUG] Mining sequence complete")
+        print(f"[DEBUG] Mining sequence complete, mined {blocks_mined} blocks")
         return True
