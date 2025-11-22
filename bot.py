@@ -84,16 +84,16 @@ class McBot:
             
             # Define crop regions - now only showing coordinate numbers
             # LEFT side for targeted block coordinates
-            y_left = 0
+            y_left = int(height * 0.001)
             h_left = int(height * 0.037)
-            x_left = 0
+            x_left = int(width * 0.001)
             w_left = int(width * 0.4)
             
             # RIGHT side for player block coordinates
-            y_right = int(height * 0.038)
-            h_right = int(height * 0.04)
+            y_right = int(height * 0.034)
+            h_right = int(height * 0.035)
             x_right = int(width * 0.80)
-            w_right = int(width * 0.19)
+            w_right = int(width * 0.195)
             
             # Crop the regions
             crop_left = thresh[y_left:y_left+h_left, x_left:x_left+w_left]
@@ -146,7 +146,6 @@ class McBot:
             
             def get_most_common_coords(crop_image, num_samples=10):
                 """Read OCR multiple times in parallel and return most common coordinate values"""
-                # Config to only read numbers with mc2 language
                 custom_config = r'--oem 1 --psm 7 '
                 
                 all_readings = []
@@ -155,7 +154,7 @@ class McBot:
                 def ocr_worker():
                     """Worker function to perform one OCR reading"""
                     try:
-                        text = pytesseract.image_to_string(crop_image, lang='mc4', config=custom_config)
+                        text = pytesseract.image_to_string(crop_image, lang='mc3', config=custom_config)
                         
                         # Remove commas and replace common OCR mistakes
                         text = text.replace(',', '')
@@ -272,14 +271,16 @@ class McBot:
             
             # Draw rectangles on the original image to show crop regions
             debug_img = screenshot.copy()
-            y_left = 0
-            h_left = int(height * 0.035)
-            x_left = 0
+
+            y_left = int(height * 0.001)
+            h_left = int(height * 0.037)
+            x_left = int(width * 0.001)
             w_left = int(width * 0.4)
-            y_right = int(height * 0.038)
-            h_right = int(height * 0.04)
+            
+            y_right = int(height * 0.034)
+            h_right = int(height * 0.035)
             x_right = int(width * 0.80)
-            w_right = int(width * 0.20)
+            w_right = int(width * 0.195)
             
             cv.rectangle(debug_img, (x_left, y_left), (x_left+w_left, y_left+h_left), (0, 255, 0), 2)
             cv.rectangle(debug_img, (x_right, y_right), (x_right+w_right, y_right+h_right), (0, 0, 255), 2)

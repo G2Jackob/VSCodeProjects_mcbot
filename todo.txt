@@ -3,8 +3,10 @@ Done:
 + coords reading from F3
 + moveing by coordinates (custom OCR Tesseract model)
 + Odering by best = (confidence * size *0,3) , then (0,95 * distance[range 0-5000] + 0,05 * best)
++ Works like shit in the night and rain (weather/day_cycle false)
++ model for OCR is mc3
 
 To fix:
 - 
-- Works like shit in the night and rain
+
 - model sometiemes loses tagets when too close or mined
