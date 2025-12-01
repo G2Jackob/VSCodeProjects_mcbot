@@ -10,8 +10,7 @@ pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tessera
 class TreeMiner:
     """Handles the tree mining sequence with tooltip detection and coordinate validation"""
     
-    def __init__(self, wood_tooltip_path='other/wood_tooltip.jpg'):
-        self.wood_tooltip = cv.imread(wood_tooltip_path, cv.IMREAD_UNCHANGED)
+    def __init__(self):
         self.tooltip_timeout = 3.5
         self.max_blocks = 20
     
