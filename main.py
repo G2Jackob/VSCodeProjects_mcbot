@@ -15,7 +15,7 @@ wincap = WindowCapture('Minecraft 1.21.10 - Singleplayer') #Name of the window t
 
 DEBUG = True
 
-detector = Detection('tree_detect_yolo.pt')
+detector = Detection('other/tree_detect_yolo.pt')
 vision_wood = Vision(None)
 vision_wood.set_screen_center(wincap.w // 2, wincap.h // 2)
 bot = McBot((wincap.offset_x, wincap.offset_y), (wincap.w, wincap.h))
