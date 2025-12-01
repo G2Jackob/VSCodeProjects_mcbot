@@ -106,6 +106,10 @@ class CoordinateReader:
             crop_left = thresh[y_left:y_left+h_left, x_left:x_left+w_left]
             crop_right = thresh[y_right:y_right+h_right, x_right:x_right+w_right]
             
+            # Save debug images
+            cv.imwrite('other/crop_left.png', crop_left)
+            cv.imwrite('other/crop_right.png', crop_right)
+            
             # Enhance images for better OCR
             crop_left = cv.bitwise_not(crop_left)
             crop_right = cv.bitwise_not(crop_right)

@@ -127,10 +127,6 @@ while True:
         bot.stop()
         cv.destroyAllWindows()
         break
-    elif key == ord('a'):
-       cv.imwrite('positive/{}.jpg'.format(loop_time), wincap.screenshot)
-    elif key == ord('d'):
-        cv.imwrite('negative/{}.jpg'.format(loop_time), wincap.screenshot)
 
     
 
