@@ -22,8 +22,8 @@ class TreeMiner:
             h, w = screenshot.shape[:2]
             crop_x1 = int(w * 0.01)
             crop_x2 = int(w * 0.3)
-            crop_y1 = int(h * 0.29)
-            crop_y2 = int(h * 0.325)
+            crop_y1 = int(h * 0.27)
+            crop_y2 = int(h * 0.35)
             
             tooltip_area = screenshot[crop_y1:crop_y2, crop_x1:crop_x2]
             
@@ -33,8 +33,12 @@ class TreeMiner:
             color_upper = np.array([180, 30, 255], dtype=np.uint8)
             mask = cv.inRange(hsv, color_lower, color_upper)
             
+            # Save debug images
+            cv.imwrite('other/tooltip_area.png', tooltip_area)
+            cv.imwrite('other/tooltip_mask.png', mask)
+            
             # OCR on the filtered area
-            custom_config = r'--oem 1 --psm 7 -l mc3'
+            custom_config = r'--oem 1 --psm 6 -l mc3'
             text = pytesseract.image_to_string(mask, config=custom_config)
             text = text.strip().lower()
             

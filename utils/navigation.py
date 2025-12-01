@@ -127,8 +127,8 @@ class NavigationController:
             print(f"[DEBUG] Horizontal distance to target: {distance:.2f} blocks (X: {dx:.1f}, Z: {dz:.1f}, Y: {dy:.1f})")
             
             # If we're close enough, we've reached the target
-            if distance <= 3.5:
-                print(f"[DEBUG] Reached target (within 3.5 blocks horizontally)")
+            if distance <= 3.75:
+                print(f"[DEBUG] Reached target (within 3.75 blocks horizontally)")
                 return True
         
         # Move forward if we're not at the target yet
