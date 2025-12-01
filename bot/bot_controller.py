@@ -43,6 +43,10 @@ class McBot:
         # OCR failure tracking
         self.ocr_fail_count = 0
         
+        # Movement stuck detection
+        self.stuck_check_coords = None
+        self.stuck_count = 0
+        
         # Initialize components
         self.coord_reader = CoordinateReader()
         self.tree_miner = TreeMiner()
@@ -134,7 +138,8 @@ class McBot:
                 if time() - self.searching_start_time > 5.0:
                     print("[DEBUG] Been searching for 5s, moving randomly")
                     self.nav_controller.move_randomly()
-                    self.searching_start_time = time()  # Reset timer
+                    pydirectinput.moveRel(300, 0, relative=True) 
+                    self.searching_start_time = time()
                 
                 if self.target_selector.move_crosshair_to_target(
                     self.targets, 
@@ -200,6 +205,8 @@ class McBot:
                         self.current_target = None
                         self.target_block_coords = None
                         self.expected_target_coords = None
+                        self.stuck_check_coords = None
+                        self.stuck_count = 0
                         self.lock.release()
                         sleep(0.1)
                         continue
@@ -241,7 +248,7 @@ class McBot:
                     print(f"[DEBUG] Distance too large ({distance:.2f} blocks), fail count: {self.ocr_fail_count}")
                     
                     # After 5 consecutive failures, move randomly
-                    if self.ocr_fail_count >= 5:
+                    if self.ocr_fail_count >= 3:
                         print(f"[DEBUG] 5 OCR failures in a row, moving randomly to change view")
                         import random
                         random_direction = random.choice(['w', 'a', 's', 'd'])
@@ -262,11 +269,29 @@ class McBot:
                 # OCR succeeded, reset fail counter
                 self.ocr_fail_count = 0
                 
+                # Check if player is stuck (same coords 5 times in a row)
+                if self.stuck_check_coords == self.player_coords:
+                    self.stuck_count += 1
+                    if self.stuck_count >= 3:
+                        print(f"[DEBUG] Player stuck! Same coords {self.stuck_count} times. Moving randomly to unstuck")
+                        import random
+                        random_direction = random.choice(['w', 'a', 's', 'd'])
+                        pydirectinput.keyDown(random_direction)
+                        sleep(0.5)
+                        pydirectinput.keyUp(random_direction)
+                        self.stuck_count = 0
+                        self.stuck_check_coords = None
+                else:
+                    self.stuck_check_coords = self.player_coords
+                    self.stuck_count = 1
+                
                 # Move towards target
                 if self.nav_controller.move_to_target(self.player_coords, self.target_block_coords):
                     print("[DEBUG] Reached target, transitioning to MINING")
                     self.lock.acquire()
                     self.state = BotState.MINING
+                    self.stuck_check_coords = None
+                    self.stuck_count = 0
                     self.lock.release()
                     continue
             

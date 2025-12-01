@@ -47,9 +47,9 @@ class TreeMiner:
             detected = any(keyword in text for keyword in wood_keywords)
             
             if detected:
-                print(f"[DEBUG] ✓ Wood tooltip DETECTED! Text: '{text}'")
+                print(f"[DEBUG] Wood tooltip DETECTED! Text: '{text}'")
             else:
-                print(f"[DEBUG] ✗ Wood tooltip not detected. Text: '{text}'")
+                print(f"[DEBUG] Wood tooltip not detected. Text: '{text}'")
             
             return detected
             
@@ -58,7 +58,7 @@ class TreeMiner:
             return False
     
     def check_coords_correct(self, current_coords, previous_coords):
-        """Check if coordinates changed correctly (X:0, Y:+1, Z:0)"""
+        """Check if coordinates didnt change """
         if current_coords is None or previous_coords is None:
             return False
         
@@ -71,7 +71,7 @@ class TreeMiner:
         
         print(f"[DEBUG] Target coords X:{prev_x}→{curr_x} ({x_diff:+d}), Y:{prev_y}→{curr_y} ({y_diff:+d}), Z:{prev_z}→{curr_z} ({z_diff:+d})")
         
-        return (x_diff == 0 and y_diff == 1 and z_diff == 0)
+        return (x_diff == 0 and z_diff == 0)
     
     def mine_tree(self, get_screenshot_func, read_coords_func):
         """
@@ -90,6 +90,7 @@ class TreeMiner:
         blocks_mined = 0
         last_tooltip_time = time()
         previous_target_coords = None
+        total_upward_movement = 0  # Track total mouse movement to return later
         
         # Read initial target block coordinates
         screenshot = get_screenshot_func()
@@ -123,6 +124,7 @@ class TreeMiner:
                         movement = max(25, 150 - (blocks_mined * 25))
                         print(f"[DEBUG] Moving up {movement}px to find next block")
                         pydirectinput.moveRel(0, -movement, relative=True)
+                        total_upward_movement += movement
                         
                         # Save coords for comparison
                         previous_target_coords = coords_before_move
@@ -130,6 +132,7 @@ class TreeMiner:
                         # No tooltip - move 5px up
                         print(f"[DEBUG] No tooltip on first block, moving up 5px")
                         pydirectinput.moveRel(0, -5, relative=True)
+                        total_upward_movement += 5
                 
                 # SUBSEQUENT BLOCKS: Move with calculated amount, check tooltip, then check coords
                 else:
@@ -159,6 +162,7 @@ class TreeMiner:
                                 movement = max(25, 150 - (blocks_mined * 25))
                                 print(f"[DEBUG] Moving up {movement}px to find next block")
                                 pydirectinput.moveRel(0, -movement, relative=True)
+                                total_upward_movement += movement
                                 
                                 # Save coords for next comparison
                                 previous_target_coords = coords_before_move
@@ -167,11 +171,13 @@ class TreeMiner:
                             movement = max(25, 150 - (blocks_mined * 25))
                             print(f"[DEBUG] Coords not correct, moving up {movement}px again")
                             pydirectinput.moveRel(0, -movement, relative=True)
+                            total_upward_movement += movement
                     else:
                         # No tooltip - move again with calculated amount
                         movement = max(25, 150 - (blocks_mined * 25))
                         print(f"[DEBUG] No tooltip, moving up {movement}px")
                         pydirectinput.moveRel(0, -movement, relative=True)
+                        total_upward_movement += movement
                         
                         # Check timeout
                         if time() - last_tooltip_time > self.tooltip_timeout:
@@ -185,14 +191,10 @@ class TreeMiner:
         pydirectinput.press('F3')
         sleep(0.3)
         
-        # Move mouse back down - sum up all the movements we made going up
-        print("[DEBUG] Moving mouse back down")
-        total_movement = 0
-        for i in range(1, blocks_mined + 1):
-            total_movement += max(25, 150 - (i * 25))
-        
-        if total_movement > 0:
-            pydirectinput.moveRel(0, total_movement, relative=True)
+        # Move mouse back down to starting position
+        print(f"[DEBUG] Moving mouse back down {total_upward_movement}px to starting position")
+        if total_upward_movement > 0:
+            pydirectinput.moveRel(0, total_upward_movement, relative=True)
             sleep(0.3)
         
         # Move forward after mining
