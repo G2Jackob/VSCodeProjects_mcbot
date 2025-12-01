@@ -35,9 +35,13 @@ class McBot:
         self.player_coords = None
         self.target_block_coords = None
         self.target_distance = None
+        self.expected_target_coords = None  # Expected coords when entering MOVING state
         
         # Timers
         self.searching_start_time = None
+        
+        # OCR failure tracking
+        self.ocr_fail_count = 0
         
         # Initialize components
         self.coord_reader = CoordinateReader()
@@ -143,6 +147,8 @@ class McBot:
                     self.lock.acquire()
                     self.state = BotState.MOVING
                     self.searching_start_time = None  # Reset search timer
+                    # Save expected target coords to verify later
+                    self.expected_target_coords = self.target_block_coords
                     self.lock.release()
                     sleep(0.2)
             
@@ -185,9 +191,34 @@ class McBot:
                 # Hide F3 debug info
                 pydirectinput.press('F3')
                 
+                # Check if we're still looking at the same target
+                if self.target_block_coords is not None and self.expected_target_coords is not None:
+                    if self.target_block_coords != self.expected_target_coords:
+                        print(f"[DEBUG] Target coords changed! Expected {self.expected_target_coords}, got {self.target_block_coords}. Not looking at target anymore, going back to searching")
+                        self.lock.acquire()
+                        self.state = BotState.SEARCHING
+                        self.current_target = None
+                        self.target_block_coords = None
+                        self.expected_target_coords = None
+                        self.lock.release()
+                        sleep(0.1)
+                        continue
+                
                 # Check if OCR failed to read coordinates
                 if self.target_block_coords is None or self.player_coords is None:
-                    print(f"[DEBUG] OCR failed to read coordinates (Target: {self.target_block_coords}, Player: {self.player_coords}), going back to searching")
+                    self.ocr_fail_count += 1
+                    print(f"[DEBUG] OCR failed to read coordinates (Target: {self.target_block_coords}, Player: {self.player_coords}), fail count: {self.ocr_fail_count}")
+                    
+                    # After 5 consecutive failures, move randomly
+                    if self.ocr_fail_count >= 5:
+                        print(f"[DEBUG] 5 OCR failures in a row, moving randomly to change view")
+                        import random
+                        random_direction = random.choice(['w', 'a', 's', 'd'])
+                        pydirectinput.keyDown(random_direction)
+                        sleep(0.5)
+                        pydirectinput.keyUp(random_direction)
+                        self.ocr_fail_count = 0
+                    
                     self.lock.acquire()
                     self.state = BotState.SEARCHING
                     self.current_target = None
@@ -206,13 +237,19 @@ class McBot:
                 
                 # If distance is over 100, discard and retry OCR
                 if distance > 100:
-                    print(f"[DEBUG] Distance too large ({distance:.2f} blocks), retrying OCR")
-                    # Move slightly to change screen view
-                    import random
-                    random_direction = random.choice(['a', 'd'])
-                    pydirectinput.keyDown(random_direction)
-                    sleep(0.15)
-                    pydirectinput.keyUp(random_direction)
+                    self.ocr_fail_count += 1
+                    print(f"[DEBUG] Distance too large ({distance:.2f} blocks), fail count: {self.ocr_fail_count}")
+                    
+                    # After 5 consecutive failures, move randomly
+                    if self.ocr_fail_count >= 5:
+                        print(f"[DEBUG] 5 OCR failures in a row, moving randomly to change view")
+                        import random
+                        random_direction = random.choice(['w', 'a', 's', 'd'])
+                        pydirectinput.keyDown(random_direction)
+                        sleep(0.5)
+                        pydirectinput.keyUp(random_direction)
+                        self.ocr_fail_count = 0
+                    
                     self.lock.acquire()
                     self.target_block_coords = None
                     self.player_coords = None
@@ -221,6 +258,9 @@ class McBot:
                     self.lock.release()
                     sleep(0.1)
                     continue
+                
+                # OCR succeeded, reset fail counter
+                self.ocr_fail_count = 0
                 
                 # Move towards target
                 if self.nav_controller.move_to_target(self.player_coords, self.target_block_coords):

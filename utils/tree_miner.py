@@ -12,7 +12,7 @@ class TreeMiner:
     
     def __init__(self, wood_tooltip_path='other/wood_tooltip.jpg'):
         self.wood_tooltip = cv.imread(wood_tooltip_path, cv.IMREAD_UNCHANGED)
-        self.tooltip_timeout = 3.0
+        self.tooltip_timeout = 3.5
         self.max_blocks = 20
     
     def detect_wood_tooltip(self, screenshot):
