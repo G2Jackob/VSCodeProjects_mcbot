@@ -47,6 +47,9 @@ class McBot:
         self.stuck_check_coords = None
         self.stuck_count = 0
         
+        # Distance tracking to detect passing target
+        self.previous_distance = None
+        
         # Initialize components
         self.coord_reader = CoordinateReader()
         self.tree_miner = TreeMiner()
@@ -154,6 +157,7 @@ class McBot:
                     self.searching_start_time = None  # Reset search timer
                     # Save expected target coords to verify later
                     self.expected_target_coords = self.target_block_coords
+                    self.previous_distance = None  # Reset distance tracking
                     self.lock.release()
                     sleep(0.2)
             
@@ -187,7 +191,7 @@ class McBot:
                 
                 # Show F3 debug info
                 pydirectinput.press('F3')
-                sleep(1.0)
+                sleep(0.3)  # Reduced from 1.0s to 0.3s for faster checks
                 
                 # Read coordinates from current screenshot
                 if self.screenshot is not None:
@@ -195,11 +199,21 @@ class McBot:
                 
                 # Hide F3 debug info
                 pydirectinput.press('F3')
+                sleep(0.1)  # Small delay after hiding F3
                 
                 # Check if we're still looking at the same target
                 if self.target_block_coords is not None and self.expected_target_coords is not None:
+                    # Debug output
+                    print(f"[DEBUG] Checking target coords - Expected: {self.expected_target_coords}, Current: {self.target_block_coords}")
+                    
                     if self.target_block_coords != self.expected_target_coords:
-                        print(f"[DEBUG] Target coords changed! Expected {self.expected_target_coords}, got {self.target_block_coords}. Not looking at target anymore, going back to searching")
+                        print(f"[DEBUG] ⚠ Target coords changed! Expected {self.expected_target_coords}, got {self.target_block_coords}. Lost target, going back to searching")
+                        # Stop any movement immediately
+                        pydirectinput.keyUp('w')
+                        pydirectinput.keyUp('a')
+                        pydirectinput.keyUp('s')
+                        pydirectinput.keyUp('d')
+                        
                         self.lock.acquire()
                         self.state = BotState.SEARCHING
                         self.current_target = None
@@ -210,6 +224,8 @@ class McBot:
                         self.lock.release()
                         sleep(0.1)
                         continue
+                else:
+                    print(f"[DEBUG] Cannot check target coords - target_block_coords: {self.target_block_coords}, expected: {self.expected_target_coords}")
                 
                 # Check if OCR failed to read coordinates
                 if self.target_block_coords is None or self.player_coords is None:
@@ -268,6 +284,31 @@ class McBot:
                 
                 # OCR succeeded, reset fail counter
                 self.ocr_fail_count = 0
+                
+                # Check if we passed the target (distance increased)
+                if self.previous_distance is not None:
+                    if distance > self.previous_distance:
+                        print(f"[DEBUG] ⚠ Distance increased! Was {self.previous_distance:.2f}, now {distance:.2f}. Passed target, going back to searching")
+                        # Stop any movement immediately
+                        pydirectinput.keyUp('w')
+                        pydirectinput.keyUp('a')
+                        pydirectinput.keyUp('s')
+                        pydirectinput.keyUp('d')
+                        
+                        self.lock.acquire()
+                        self.state = BotState.SEARCHING
+                        self.current_target = None
+                        self.target_block_coords = None
+                        self.expected_target_coords = None
+                        self.stuck_check_coords = None
+                        self.stuck_count = 0
+                        self.previous_distance = None
+                        self.lock.release()
+                        sleep(0.1)
+                        continue
+                
+                # Update previous distance
+                self.previous_distance = distance
                 
                 # Check if player is stuck (same coords 5 times in a row)
                 if self.stuck_check_coords == self.player_coords:

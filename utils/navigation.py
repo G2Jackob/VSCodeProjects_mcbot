@@ -27,7 +27,7 @@ class TargetSelector:
         if not targets:
             return None
         
-        # Calculate score combining confidence, size, and distance
+        # Calculate score combining confidence, size, and distance from screen center
         targets_with_score = []
         for target in targets:
             x, y, conf, size = target
@@ -35,19 +35,18 @@ class TargetSelector:
             # Base score from confidence and size
             base_score = conf * size * 0.01
             
-            # Distance score (prefer closer targets)
-            distance = 0
-            if player_coords and target_block_coords:
-                dx = target_block_coords[0] - player_coords[0]
-                dz = target_block_coords[2] - player_coords[2]
-                distance = (dx**2 + dz**2)**0.5
+            # Distance from screen center (in pixels)
+            dx = x - self.center_x
+            dy = y - self.center_y
+            distance_from_center = (dx**2 + dy**2)**0.5
             
-            distance_score = max(0, 500 - distance)
+            # Distance score (prefer targets closer to center, max distance ~800px)
+            distance_score = max(0, 500 - distance_from_center)
             
             # Combine scores: 40% base + 60% distance
             final_score = (base_score * 0.4) + (distance_score * 0.6)
             
-            targets_with_score.append(((x, y, conf, size), final_score, distance))
+            targets_with_score.append(((x, y, conf, size), final_score, distance_from_center))
         
         # Sort by score in descending order
         targets_with_score.sort(key=lambda t: t[1], reverse=True)

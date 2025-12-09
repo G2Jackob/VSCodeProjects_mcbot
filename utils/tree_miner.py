@@ -19,10 +19,10 @@ class TreeMiner:
         try:
             # Crop the left side where tooltips appear
             h, w = screenshot.shape[:2]
-            crop_x1 = int(w * 0.01)
+            crop_x1 = int(w * 0.001)
             crop_x2 = int(w * 0.3)
-            crop_y1 = int(h * 0.27)
-            crop_y2 = int(h * 0.35)
+            crop_y1 = int(h * 0.001)
+            crop_y2 = int(h * 0.15)
             
             tooltip_area = screenshot[crop_y1:crop_y2, crop_x1:crop_x2]
             
@@ -100,13 +100,19 @@ class TreeMiner:
                 print(f"[DEBUG] Initial target coords: {previous_target_coords}")
         
         while blocks_mined < self.max_blocks:
+            # Check timeout at the start of each iteration
+            if time() - last_tooltip_time > self.tooltip_timeout:
+                print(f"[DEBUG] No tooltip for {self.tooltip_timeout}s, mining complete")
+                break
+            
             screenshot = get_screenshot_func()
             if screenshot is not None:
-                # FIRST BLOCK: Just look for tooltip with 5px movements
+                # FIRST BLOCK: Just look for tooltip with 25px movements
                 if blocks_mined == 0:
                     tooltip_found = self.detect_wood_tooltip(screenshot)
-                    
+
                     if tooltip_found:
+                        last_tooltip_time = time()
                         print(f"[DEBUG] First block tooltip found, mining!")
                         
                         # Save coords before mining
@@ -120,7 +126,7 @@ class TreeMiner:
                         blocks_mined += 1
                         
                         # Move up for next block
-                        movement = max(25, 150 - (blocks_mined * 25))
+                        movement = max(20, 150 - (blocks_mined * 20))
                         print(f"[DEBUG] Moving up {movement}px to find next block")
                         pydirectinput.moveRel(0, -movement, relative=True)
                         total_upward_movement += movement
@@ -128,10 +134,10 @@ class TreeMiner:
                         # Save coords for comparison
                         previous_target_coords = coords_before_move
                     else:
-                        # No tooltip - move 5px up
-                        print(f"[DEBUG] No tooltip on first block, moving up 5px")
-                        pydirectinput.moveRel(0, -5, relative=True)
-                        total_upward_movement += 5
+                        # No tooltip - move 25px up
+                        print(f"[DEBUG] No tooltip on first block, moving up 25px")
+                        pydirectinput.moveRel(0, -25, relative=True)
+                        total_upward_movement += 25
                 
                 # SUBSEQUENT BLOCKS: Move with calculated amount, check tooltip, then check coords
                 else:
@@ -158,7 +164,7 @@ class TreeMiner:
                             
                             # Move up for next block
                             if blocks_mined < self.max_blocks:
-                                movement = max(25, 150 - (blocks_mined * 25))
+                                movement = max(20, 150 - (blocks_mined * 20))
                                 print(f"[DEBUG] Moving up {movement}px to find next block")
                                 pydirectinput.moveRel(0, -movement, relative=True)
                                 total_upward_movement += movement
@@ -167,21 +173,16 @@ class TreeMiner:
                                 previous_target_coords = coords_before_move
                         else:
                             # Coords not correct - move again with same amount
-                            movement = max(25, 150 - (blocks_mined * 25))
+                            movement = max(20, 150 - (blocks_mined * 20))
                             print(f"[DEBUG] Coords not correct, moving up {movement}px again")
                             pydirectinput.moveRel(0, -movement, relative=True)
                             total_upward_movement += movement
                     else:
                         # No tooltip - move again with calculated amount
-                        movement = max(25, 150 - (blocks_mined * 25))
+                        movement = max(20, 150 - (blocks_mined * 20))
                         print(f"[DEBUG] No tooltip, moving up {movement}px")
                         pydirectinput.moveRel(0, -movement, relative=True)
                         total_upward_movement += movement
-                        
-                        # Check timeout
-                        if time() - last_tooltip_time > self.tooltip_timeout:
-                            print(f"[DEBUG] No tooltip for {self.tooltip_timeout}s, mining complete")
-                            break
             else:
                 print("[DEBUG] No screenshot available")
                 sleep(0.1)
@@ -193,7 +194,7 @@ class TreeMiner:
         # Move mouse back down to starting position
         print(f"[DEBUG] Moving mouse back down {total_upward_movement}px to starting position")
         if total_upward_movement > 0:
-            pydirectinput.moveRel(0, total_upward_movement, relative=True)
+            pydirectinput.moveRel(0, total_upward_movement - 100, relative=True)
             sleep(0.3)
         
         # Move forward after mining

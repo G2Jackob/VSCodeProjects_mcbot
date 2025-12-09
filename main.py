@@ -122,17 +122,22 @@ while True:
     loop_time = time()
     key = cv.waitKey(1)
     if key == ord('q'): 
+        print("[DEBUG] Q pressed - stopping all threads...")
         wincap.stop()
         detector.stop()
         bot.stop()
+        sleep(0.5)  # Give threads time to stop
         cv.destroyAllWindows()
+        print("[DEBUG] All threads stopped")
         break
 
     
 
+print("[DEBUG] Main loop ended - cleaning up...")
 wincap.stop()
 detector.stop()
 bot.stop()
+sleep(0.5)  # Give threads time to stop
 cv.destroyAllWindows()
 
 print("Done")
