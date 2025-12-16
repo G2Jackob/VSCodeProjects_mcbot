@@ -15,6 +15,7 @@ class Detection:
     def __init__(self, model_file_path):
         self.lock = Lock()
         self.model = YOLO(model_file_path)
+        self.screen_center = None
         print(f"[DEBUG] YOLO model loaded: {model_file_path}")
 
     def update(self, screenshot):
@@ -51,3 +52,42 @@ class Detection:
                 
     def is_running(self):
         return not self.stopped
+    
+    def set_screen_center(self, width, height):
+        """Set the screen center coordinates"""
+        self.screen_center = (width // 2, height // 2)
+    
+    def get_click_points(self, results):
+        """Convert YOLO results to click points with confidence and size info"""
+        if not results or not self.screen_center:
+            return []
+
+        try:
+            # Get detection data
+            boxes = results.boxes.xyxy.tolist()
+            classes = results.boxes.cls.tolist()
+            confidences = results.boxes.conf.tolist()  # Get confidence scores
+            names = results.names
+            
+            # Process each detection and return list of (x, y, confidence, size) tuples
+            click_points = []
+            for box, cls, conf in zip(boxes, classes, confidences):
+                x1, y1, x2, y2 = [int(coord) for coord in box]
+                
+                # Calculate size of bounding box
+                width = x2 - x1
+                height = y2 - y1
+                size = width * height
+                
+                # Calculate bottom-center point (center X, 10 pixels above bottom Y)
+                # This will make the bot aim slightly above the bottom of the tree
+                center_x = int((x1 + x2) / 2)
+                bottom_y = int(y2) - 10  # 10 pixels above the bottom of the bounding box
+                
+                # Add bottom-center point with confidence and size to list
+                click_points.append((center_x, bottom_y, conf, size))
+            
+            return click_points
+        except Exception as e:
+            print(f"[DEBUG] Error getting click points: {str(e)}")
+            return []

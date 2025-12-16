@@ -3,10 +3,9 @@ import numpy as np
 import os
 from time import time, sleep
 from windowcapture import WindowCapture
-from vision import Vision
 from detection import Detection
 from threading import Thread
-from bot import McBot, BotState
+from bot_controller import McBot, BotState
 
 
 
@@ -16,8 +15,7 @@ wincap = WindowCapture('Minecraft 1.21.10 - Singleplayer') #Name of the window t
 DEBUG = True
 
 detector = Detection('other/tree_detect_yolo.pt')
-vision_wood = Vision(None)
-vision_wood.set_screen_center(wincap.w // 2, wincap.h // 2)
+detector.set_screen_center(wincap.w // 2, wincap.h // 2)
 bot = McBot((wincap.offset_x, wincap.offset_y), (wincap.w, wincap.h))
 
 wincap.start()
@@ -109,7 +107,7 @@ while True:
                         cv.LINE_AA
                     )
                 
-                targets = vision_wood.get_click_points(detector.results)
+                targets = detector.get_click_points(detector.results)
                 bot.update_targets(targets)
                 bot.update_screenshot(screenshot)
                 
@@ -126,7 +124,7 @@ while True:
         wincap.stop()
         detector.stop()
         bot.stop()
-        sleep(0.5)  # Give threads time to stop
+        sleep(0.5)
         cv.destroyAllWindows()
         print("[DEBUG] All threads stopped")
         break
@@ -137,7 +135,7 @@ print("[DEBUG] Main loop ended - cleaning up...")
 wincap.stop()
 detector.stop()
 bot.stop()
-sleep(0.5)  # Give threads time to stop
+sleep(0.5)
 cv.destroyAllWindows()
 
 print("Done")
