@@ -1,5 +1,3 @@
-import cv2 as cv
-import numpy as np
 from threading import Thread, Lock
 from ultralytics import YOLO
 
@@ -67,7 +65,6 @@ class Detection:
             boxes = results.boxes.xyxy.tolist()
             classes = results.boxes.cls.tolist()
             confidences = results.boxes.conf.tolist()  # Get confidence scores
-            names = results.names
             
             # Process each detection and return list of (x, y, confidence, size) tuples
             click_points = []

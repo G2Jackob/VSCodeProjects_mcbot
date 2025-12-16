@@ -1,4 +1,3 @@
-import cv2 as cv
 import pydirectinput
 from time import sleep
 import random
@@ -12,7 +11,7 @@ class TargetSelector:
         self.center_x = window_w // 2
         self.center_y = window_h // 2
     
-    def get_best_target(self, targets, player_coords=None, target_block_coords=None):
+    def get_best_target(self, targets):
         """
         Find the best target based on confidence, size, and distance
         
@@ -71,7 +70,7 @@ class TargetSelector:
         # Get target position
         if targets:
             if current_target is None:
-                target_pos = self.get_best_target(targets, player_coords, target_block_coords)
+                target_pos = self.get_best_target(targets)
             else:
                 target_pos = current_target
         else:

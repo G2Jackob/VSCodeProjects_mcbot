@@ -1,10 +1,8 @@
 import cv2 as cv
-import numpy as np
 import os
 from time import time, sleep
 from windowcapture import WindowCapture
 from detection import Detection
-from threading import Thread
 from bot_controller import McBot, BotState
 
 
@@ -22,7 +20,7 @@ wincap.start()
 detector.start()
 bot.start()
 
-BOT_STATE_NAMES = {
+BotState.NAMES = {
     0: "INITIALIZING",
     1: "SEARCHING",
     2: "MOVING",
@@ -55,7 +53,7 @@ while True:
         if detector.debug_image is not None and detector.results is not None:
             try:
                 debug_image = detector.debug_image.copy()
-                state_text = f"Bot State: {BOT_STATE_NAMES.get(bot.state, str(bot.state))}"
+                state_text = f"Bot State: {BotState.NAMES.get(bot.state, str(bot.state))}"
                 cv.putText(
                     debug_image,
                     state_text,

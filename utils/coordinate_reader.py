@@ -16,7 +16,7 @@ class CoordinateReader:
     def extract_numbers_only(self, text):
         """Extract numbers from OCR text, handling minus signs and misread characters"""
         # Replace common OCR mistakes
-        text = text.replace(',', '')
+        text = text.replace(',', '').replace('.', '')
         text = text.replace('S', '5').replace('s', '5')
         text = text.replace('Q', '0')
         
@@ -49,7 +49,7 @@ class CoordinateReader:
             text = pytesseract.image_to_string(crop_image, lang='mc3', config=custom_config)
             
             # Remove commas and replace common OCR mistakes
-            text = text.replace(',', '')
+            text = text.replace(',', '').replace('.', '')
             text = text.replace('S', '5').replace('s', '5')
             text = text.replace('Q', '0')
             
