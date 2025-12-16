@@ -126,7 +126,7 @@ class TreeMiner:
                         blocks_mined += 1
                         
                         # Move up for next block
-                        movement = max(20, 150 - (blocks_mined * 20))
+                        movement = max(15, 150 - (blocks_mined * 15))
                         print(f"[DEBUG] Moving up {movement}px to find next block")
                         pydirectinput.moveRel(0, -movement, relative=True)
                         total_upward_movement += movement
@@ -164,7 +164,7 @@ class TreeMiner:
                             
                             # Move up for next block
                             if blocks_mined < self.max_blocks:
-                                movement = max(20, 150 - (blocks_mined * 20))
+                                movement = max(15, 150 - (blocks_mined * 15))
                                 print(f"[DEBUG] Moving up {movement}px to find next block")
                                 pydirectinput.moveRel(0, -movement, relative=True)
                                 total_upward_movement += movement
@@ -173,13 +173,13 @@ class TreeMiner:
                                 previous_target_coords = coords_before_move
                         else:
                             # Coords not correct - move again with same amount
-                            movement = max(20, 150 - (blocks_mined * 20))
+                            movement = max(15, 150 - (blocks_mined * 15))
                             print(f"[DEBUG] Coords not correct, moving up {movement}px again")
                             pydirectinput.moveRel(0, -movement, relative=True)
                             total_upward_movement += movement
                     else:
                         # No tooltip - move again with calculated amount
-                        movement = max(20, 150 - (blocks_mined * 20))
+                        movement = max(15, 150 - (blocks_mined * 15))
                         print(f"[DEBUG] No tooltip, moving up {movement}px")
                         pydirectinput.moveRel(0, -movement, relative=True)
                         total_upward_movement += movement
