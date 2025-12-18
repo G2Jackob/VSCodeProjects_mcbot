@@ -159,7 +159,7 @@ class NavigationController:
     @staticmethod
     def move_randomly():
         """Move in a random direction for exploration"""
-        direction = random.choice(['w', 'a', 's', 'd'])
+        direction = random.choice([ 'a', 's', 'd'])
         pydirectinput.keyDown(direction)
         sleep(0.7)
         pydirectinput.keyUp(direction)

@@ -15,10 +15,6 @@ class CoordinateReader:
     
     def extract_numbers_only(self, text):
         """Extract numbers from OCR text, handling minus signs and misread characters"""
-        # Replace common OCR mistakes
-        text = text.replace(',', '').replace('.', '')
-        text = text.replace('S', '5').replace('s', '5')
-        text = text.replace('Q', '0')
         
         coords_with_pos = []
         seen_positions = set()
