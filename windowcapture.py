@@ -50,14 +50,16 @@ class WindowCapture:
         self.offset_y = window_rect[1] + title_height
 
     def get_screenshot(self):
-        # Fast BitBlt capture
+        # Use PrintWindow for hardware-accelerated windows
         wDC = win32gui.GetWindowDC(self.hwnd)
         dcObj = win32ui.CreateDCFromHandle(wDC)
         cDC = dcObj.CreateCompatibleDC()
         dataBitMap = win32ui.CreateBitmap()
         dataBitMap.CreateCompatibleBitmap(dcObj, self.w, self.h)
         cDC.SelectObject(dataBitMap)
-        cDC.BitBlt((0, 0), (self.w, self.h), dcObj, (self.cropped_x, self.cropped_y), win32con.SRCCOPY)
+        
+        # PrintWindow works with hardware acceleration
+        ctypes.windll.user32.PrintWindow(self.hwnd, cDC.GetSafeHdc(), 3)
 
         # Convert to numpy array
         signedIntsArray = dataBitMap.GetBitmapBits(True)
