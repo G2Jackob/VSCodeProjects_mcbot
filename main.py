@@ -11,7 +11,7 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 wincap = WindowCapture('Minecraft 1.21.10 - Singleplayer') #Name of the window to capture
 
 DEBUG = True
-
+q
 detector = Detection('other/tree_detect_yolo.pt')
 detector.set_screen_center(wincap.w // 2, wincap.h // 2)
 bot = McBot((wincap.offset_x, wincap.offset_y), (wincap.w, wincap.h))
@@ -29,6 +29,7 @@ BotState.NAMES = {
 
 loop_time = time()
 frame_count = 0
+last_frame_id = -1
 
 while True:
     if not wincap.is_running():
@@ -36,13 +37,19 @@ while True:
 
     if not detector.is_running():
         break
-       
+    
+    # Wait for a new frame
     screenshot = None
-    for _ in range(10):
-        if wincap.screenshot is not None:
+    for _ in range(50):
+        wincap.lock.acquire()
+        current_frame_id = wincap.frame_id
+        if wincap.screenshot is not None and current_frame_id != last_frame_id:
             screenshot = wincap.screenshot.copy()
+            last_frame_id = current_frame_id
+            wincap.lock.release()
             break
-        sleep(0.1)
+        wincap.lock.release()
+        sleep(0.02)
             
     if screenshot is None:
         continue

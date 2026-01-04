@@ -12,6 +12,7 @@ class WindowCapture:
     stopped = True
     lock = None
     screenshot = None
+    frame_id = 0
 
     w = 0
     h = 0
@@ -93,6 +94,7 @@ class WindowCapture:
            screenshot = self.get_screenshot()
            self.lock.acquire()
            self.screenshot = screenshot
+           self.frame_id += 1
            self.lock.release()
     
     def is_running(self):
