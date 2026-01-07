@@ -35,7 +35,7 @@ class Detection:
                 try:
                    
                     # Get results from YOLO model
-                    results = self.model(self.screenshot, show=False, conf=0.6, line_width=1, classes=[1,3,5,7,9,11])[0]
+                    results = self.model(self.screenshot, show=False, conf=0.6, line_width=1, classes=[1,3,5,7,9,11], verbose=False)[0]
                     
                     self.lock.acquire()
                     self.debug_image = results.plot()

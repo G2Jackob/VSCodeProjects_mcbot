@@ -42,13 +42,13 @@ class TreeMiner:
             text = text.strip().lower()
             
             # Look for wood-related keywords
-            wood_keywords = ['birch', 'oak', 'spruce', 'jungle', 'acacia', 'dark', 'log', 'wood']
+            wood_keywords = ['log']
             detected = any(keyword in text for keyword in wood_keywords)
             
             if detected:
-                print(f"[DEBUG] Wood tooltip DETECTED! Text: '{text}'")
+                print(f"[DEBUG] Wood tooltip DETECTED!")
             else:
-                print(f"[DEBUG] Wood tooltip not detected. Text: '{text}'")
+                print(f"[DEBUG] Wood tooltip not detected.")
             
             return detected
             
@@ -100,23 +100,29 @@ class TreeMiner:
                 print(f"[DEBUG] Initial target coords: {previous_target_coords}")
         
         while blocks_mined < self.max_blocks:
-            # Check timeout at the start of each iteration
-            if time() - last_tooltip_time > self.tooltip_timeout:
-                print(f"[DEBUG] No tooltip for {self.tooltip_timeout}s, mining complete")
-                break
-            
             screenshot = get_screenshot_func()
             if screenshot is not None:
-                # FIRST BLOCK: Just look for tooltip with 25px movements
-                if blocks_mined == 0:
-                    tooltip_found = self.detect_wood_tooltip(screenshot)
-
-                    if tooltip_found:
-                        last_tooltip_time = time()
-                        print(f"[DEBUG] First block tooltip found, mining!")
-                        
-                        # Save coords before mining
-                        _, coords_before_move = read_coords_func(screenshot)
+                # Check timeout before processing
+                if time() - last_tooltip_time > self.tooltip_timeout:
+                    print(f"[DEBUG] No tooltip for {self.tooltip_timeout}s, mining complete")
+                    break
+                
+                tooltip_found = self.detect_wood_tooltip(screenshot)
+                
+                if tooltip_found:
+                    last_tooltip_time = time()
+                    
+                    # Read current coords
+                    _, current_coords = read_coords_func(screenshot)
+                    
+                    # For first block, skip coord check; for others, verify coords
+                    coords_valid = (blocks_mined == 0) or self.check_coords_correct(current_coords, previous_target_coords)
+                    
+                    if coords_valid:
+                        if blocks_mined == 0:
+                            print(f"[DEBUG] First block tooltip found, mining!")
+                        else:
+                            print(f"[DEBUG] Coordinates correct! Mining block {blocks_mined + 1}")
                         
                         # Mine the block
                         pydirectinput.mouseDown()
@@ -131,58 +137,28 @@ class TreeMiner:
                         pydirectinput.moveRel(0, -movement, relative=True)
                         total_upward_movement += movement
                         
-                        # Save coords for comparison
-                        previous_target_coords = coords_before_move
+                        # Save coords for next comparison
+                        previous_target_coords = current_coords
+
                     else:
-                        # No tooltip - move 25px up
-                        print(f"[DEBUG] No tooltip on first block, moving up 25px")
-                        pydirectinput.moveRel(0, -25, relative=True)
-                        total_upward_movement += 25
-                
-                # SUBSEQUENT BLOCKS: Move with calculated amount, check tooltip, then check coords
-                else:
-                    tooltip_found = self.detect_wood_tooltip(screenshot)
-                    
-                    if tooltip_found:
-                        print(f"[DEBUG] Tooltip found, checking coordinates")
-                        
-                        # Check if coordinates are correct
-                        _, current_coords = read_coords_func(screenshot)
-                        
-                        if self.check_coords_correct(current_coords, previous_target_coords):
-                            print(f"[DEBUG] Coordinates correct! Mining block {blocks_mined + 1}")
-                            
-                            # Save coords before mining
-                            coords_before_move = current_coords
-                            
-                            # Mine the block
-                            pydirectinput.mouseDown()
-                            sleep(3.4)
-                            pydirectinput.mouseUp()
-                            last_tooltip_time = time()
-                            blocks_mined += 1
-                            
-                            # Move up for next block
-                            if blocks_mined < self.max_blocks:
-                                movement = max(15, 150 - (blocks_mined * 15))
-                                print(f"[DEBUG] Moving up {movement}px to find next block")
-                                pydirectinput.moveRel(0, -movement, relative=True)
-                                total_upward_movement += movement
-                                
-                                # Save coords for next comparison
-                                previous_target_coords = coords_before_move
-                        else:
-                            # Coords not correct - move again with same amount
-                            movement = max(15, 150 - (blocks_mined * 15))
-                            print(f"[DEBUG] Coords not correct, moving up {movement}px again")
-                            pydirectinput.moveRel(0, -movement, relative=True)
-                            total_upward_movement += movement
-                    else:
-                        # No tooltip - move again with calculated amount
+                        # Coords not correct - move again
                         movement = max(15, 150 - (blocks_mined * 15))
-                        print(f"[DEBUG] No tooltip, moving up {movement}px")
+                        print(f"[DEBUG] Coords not correct, moving up {movement}px again")
                         pydirectinput.moveRel(0, -movement, relative=True)
                         total_upward_movement += movement
+
+                else:
+                    # No tooltip - check if we should continue or timeout
+                    if time() - last_tooltip_time > self.tooltip_timeout:
+                        print(f"[DEBUG] No tooltip for {self.tooltip_timeout}s, mining complete")
+                        break
+                    
+                    # Move up
+                    movement = 25 if blocks_mined == 0 else max(15, 150 - (blocks_mined * 15))
+                    print(f"[DEBUG] No tooltip, moving up {movement}px")
+                    pydirectinput.moveRel(0, -movement, relative=True)
+                    total_upward_movement += movement
+
             else:
                 print("[DEBUG] No screenshot available")
                 sleep(0.1)

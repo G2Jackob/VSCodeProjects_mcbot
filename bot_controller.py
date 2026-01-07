@@ -10,6 +10,13 @@ class BotState:
     SEARCHING = 1
     MOVING = 2
     MINING = 3
+    
+    NAMES = {
+        0: "INITIALIZING",
+        1: "SEARCHING",
+        2: "MOVING",
+        3: "MINING"
+    }
 
 class McBot:
     """Main bot controller that coordinates all bot activities"""
@@ -43,12 +50,16 @@ class McBot:
         # OCR failure tracking
         self.ocr_fail_count = 0
         
-        # Movement stuck detection
-        self.stuck_check_coords = None
-        self.stuck_count = 0
-        
         # Distance tracking to detect passing target
         self.previous_distance = None
+        
+        # Track initial coords for stuck detection
+        self.initial_move_coords = None
+        self.stuck_count = 0
+        
+        # Screenshot-based stuck detection
+        self.previous_screenshot = None
+        self.screenshot_stuck_count = 0
         
         # Initialize components
         self.coord_reader = CoordinateReader()
@@ -69,7 +80,7 @@ class McBot:
         self.lock.release()
     
     def get_screenshot(self):
-        """Get current screenshot (thread-safe)"""
+        """Get current screenshot"""
         self.lock.acquire()
         screenshot = self.screenshot
         self.lock.release()
@@ -112,6 +123,30 @@ class McBot:
             read_coords_func=self.coord_reader.read_coordinates
         )
     
+    def change_state(self, new_state, **kwargs):
+        """Helper method to change bot state and optionally clear variables
+        
+        Args:
+            new_state: The state to transition to
+            **kwargs: Optional variables, value to set/(None to clear):
+                - current_target
+                - target_block_coords
+                - target_distance
+                - expected_target_coords
+                - previous_distance
+                - searching_start_time
+                - initial_move_coords
+        """
+        self.lock.acquire()
+        self.state = new_state
+        
+        # Update any specified variables
+        for key, value in kwargs.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
+        
+        self.lock.release()
+    
     def start(self):
         """Start the bot thread"""
         self.stopped = False
@@ -128,9 +163,7 @@ class McBot:
             if self.state == BotState.INITIALIZING:
                 if time() - self.timestamp > self.INITIALIZING_TIME:
                     print("[DEBUG] Initialization complete, transitioning to SEARCHING")
-                    self.lock.acquire()
-                    self.state = BotState.SEARCHING
-                    self.lock.release()
+                    self.change_state(BotState.SEARCHING)
             
             elif self.state == BotState.SEARCHING:
                 # Start tracking time when entering SEARCHING state
@@ -140,59 +173,44 @@ class McBot:
                 # Check if we've been searching for more than 5 seconds
                 if time() - self.searching_start_time > 5.0:
                     print("[DEBUG] Been searching for 5s, moving randomly")
+                    pydirectinput.moveRel(500, 0, relative=True) 
                     self.nav_controller.move_randomly()
-                    pydirectinput.moveRel(300, 0, relative=True) 
                     self.searching_start_time = time()
                 
                 if self.target_selector.move_crosshair_to_target(
                     self.targets, 
-                    self.player_coords, 
-                    self.target_block_coords, 
                     self.current_target
                 ):
                     print("[DEBUG] Crosshair centered, transitioning to MOVING")
                     sleep(0.2)
-                    self.lock.acquire()
-                    self.state = BotState.MOVING
-                    self.searching_start_time = None  # Reset search timer
-                    # Save expected target coords to verify later
-                    self.expected_target_coords = self.target_block_coords
-                    self.previous_distance = None  # Reset distance tracking
-                    self.lock.release()
+                    # Save the target we're locking onto
+                    if self.current_target is None and self.targets:
+                        self.current_target = self.target_selector.get_best_target(self.targets)
+                    self.change_state(BotState.MOVING, searching_start_time=None, expected_target_coords=self.target_block_coords, previous_distance=None, initial_move_coords=None)
                     sleep(0.2)
             
             elif self.state == BotState.MINING:
                 # Recenter cursor on target before mining
                 if self.target_selector.move_crosshair_to_target(
                     self.targets,
-                    self.player_coords,
-                    self.target_block_coords,
                     self.current_target
                 ):
                     if self.mine_tree_wrapper():
                         print("[DEBUG] Mining complete, clearing target")
-                        self.lock.acquire()
-                        self.state = BotState.SEARCHING
-                        self.current_target = None
-                        self.target_block_coords = None
-                        self.target_distance = None
-                        self.lock.release()
+                        self.change_state(BotState.SEARCHING, current_target=None, target_block_coords=None, target_distance=None)
                 else:
                     print("[DEBUG] Lost target while recentering, going back to searching")
-                    self.lock.acquire()
-                    self.state = BotState.SEARCHING
-                    self.current_target = None
-                    self.lock.release()
+                    self.change_state(BotState.SEARCHING, current_target=None, target_block_coords=None)
             
             elif self.state == BotState.MOVING:
-                # Store the original coordinates
-                original_target_coords = self.target_block_coords
-                original_player_coords = self.player_coords
-                
+
+                saved_screenshot = self.screenshot
                 # Show F3 debug info
                 pydirectinput.press('F3')
                 sleep(0.3)  # Reduced from 1.0s to 0.3s for faster checks
-                
+                  # Store the original coordinates
+                original_target_coords = self.target_block_coords
+                original_player_coords = self.player_coords
                 # Read coordinates from current screenshot
                 if self.screenshot is not None:
                     self.read_f3_coordinates(self.screenshot)
@@ -207,134 +225,71 @@ class McBot:
                     print(f"[DEBUG] Checking target coords - Expected: {self.expected_target_coords}, Current: {self.target_block_coords}")
                     
                     if self.target_block_coords != self.expected_target_coords:
-                        print(f"[DEBUG] ⚠ Target coords changed! Expected {self.expected_target_coords}, got {self.target_block_coords}. Lost target, going back to searching")
-                        # Stop any movement immediately
-                        pydirectinput.keyUp('w')
-                        pydirectinput.keyUp('a')
-                        pydirectinput.keyUp('s')
-                        pydirectinput.keyUp('d')
-                        
-                        self.lock.acquire()
-                        self.state = BotState.SEARCHING
-                        self.current_target = None
-                        self.target_block_coords = None
-                        self.expected_target_coords = None
-                        self.stuck_check_coords = None
-                        self.stuck_count = 0
-                        self.lock.release()
+                        print(f"[DEBUG] Target coords changed! Expected {self.expected_target_coords}, got {self.target_block_coords}. Lost target, going back to searching")
+                       
+                        self.change_state(BotState.SEARCHING, current_target=None, target_block_coords=None, expected_target_coords=None)
                         sleep(0.1)
                         continue
                 else:
                     print(f"[DEBUG] Cannot check target coords - target_block_coords: {self.target_block_coords}, expected: {self.expected_target_coords}")
                 
-                # Check if OCR failed to read coordinates
+                # Check if OCR failed or distance is unreasonable
                 if self.target_block_coords is None or self.player_coords is None:
                     self.ocr_fail_count += 1
                     print(f"[DEBUG] OCR failed to read coordinates (Target: {self.target_block_coords}, Player: {self.player_coords}), fail count: {self.ocr_fail_count}")
+                else:
+                    # Calculate distance to check if OCR result is reasonable
+                    dx = self.target_block_coords[0] - self.player_coords[0]
+                    dz = self.target_block_coords[2] - self.player_coords[2]
+                    distance = (dx**2 + dz**2)**0.5
+                    self.target_distance = distance
                     
-                    # After 5 consecutive failures, move randomly
-                    if self.ocr_fail_count >= 5:
-                        print(f"[DEBUG] 5 OCR failures in a row, moving randomly to change view")
-                        import random
-                        random_direction = random.choice(['w', 'a', 's', 'd'])
-                        pydirectinput.keyDown(random_direction)
-                        sleep(0.5)
-                        pydirectinput.keyUp(random_direction)
-                        self.ocr_fail_count = 0
-                    
-                    self.lock.acquire()
-                    self.state = BotState.SEARCHING
-                    self.current_target = None
-                    self.target_block_coords = None
-                    self.lock.release()
-                    sleep(0.1)
-                    continue
+                    if distance > 100:
+                        self.ocr_fail_count += 1
+                        print(f"[DEBUG] Distance too large ({distance:.2f} blocks), fail count: {self.ocr_fail_count}")
                 
-                # Calculate distance to check if OCR result is reasonable
-                dx = self.target_block_coords[0] - self.player_coords[0]
-                dz = self.target_block_coords[2] - self.player_coords[2]
-                distance = (dx**2 + dz**2)**0.5
-                
-                # Update target_distance for display
-                self.target_distance = distance
-                
-                # If distance is over 100, discard and retry OCR
-                if distance > 100:
-                    self.ocr_fail_count += 1
-                    print(f"[DEBUG] Distance too large ({distance:.2f} blocks), fail count: {self.ocr_fail_count}")
-                    
-                    # After 5 consecutive failures, move randomly
+                # Handle OCR failures
+                if self.ocr_fail_count > 0:
+                    # After consecutive failures, move randomly
                     if self.ocr_fail_count >= 3:
-                        print(f"[DEBUG] 5 OCR failures in a row, moving randomly to change view")
-                        import random
-                        random_direction = random.choice(['w', 'a', 's', 'd'])
-                        pydirectinput.keyDown(random_direction)
-                        sleep(0.5)
-                        pydirectinput.keyUp(random_direction)
+                        print(f"[DEBUG] {self.ocr_fail_count} OCR failures in a row, moving randomly to change view")
+                        self.nav_controller.move_randomly()
                         self.ocr_fail_count = 0
-                    
-                    self.lock.acquire()
-                    self.target_block_coords = None
-                    self.player_coords = None
-                    self.current_target = None
-                    self.state = BotState.SEARCHING
-                    self.lock.release()
-                    sleep(0.1)
-                    continue
-                
+                                    
                 # OCR succeeded, reset fail counter
                 self.ocr_fail_count = 0
                 
                 # Check if we passed the target (distance increased)
                 if self.previous_distance is not None:
                     if distance > self.previous_distance:
-                        print(f"[DEBUG] ⚠ Distance increased! Was {self.previous_distance:.2f}, now {distance:.2f}. Passed target, going back to searching")
-                        # Stop any movement immediately
-                        pydirectinput.keyUp('w')
-                        pydirectinput.keyUp('a')
-                        pydirectinput.keyUp('s')
-                        pydirectinput.keyUp('d')
-                        
-                        self.lock.acquire()
-                        self.state = BotState.SEARCHING
-                        self.current_target = None
-                        self.target_block_coords = None
-                        self.expected_target_coords = None
-                        self.stuck_check_coords = None
-                        self.stuck_count = 0
-                        self.previous_distance = None
-                        self.lock.release()
+                        print(f"[DEBUG] Distance increased! Was {self.previous_distance:.2f}, now {distance:.2f}. Passed target, going back to searching")
+                       
+                        self.change_state(BotState.SEARCHING, current_target=None, target_block_coords=None, expected_target_coords=None, previous_distance=None)
                         sleep(0.1)
                         continue
                 
                 # Update previous distance
                 self.previous_distance = distance
                 
-                # Check if player is stuck (same coords 5 times in a row)
-                if self.stuck_check_coords == self.player_coords:
+                if self.nav_controller.check_if_stuck(original_player_coords, self.player_coords, saved_screenshot, self.screenshot):
                     self.stuck_count += 1
-                    if self.stuck_count >= 3:
-                        print(f"[DEBUG] Player stuck! Same coords {self.stuck_count} times. Moving randomly to unstuck")
-                        import random
-                        random_direction = random.choice(['w', 'a', 's', 'd'])
-                        pydirectinput.keyDown(random_direction)
-                        sleep(0.5)
-                        pydirectinput.keyUp(random_direction)
+                    print(f"[DEBUG] Stuck detected {self.stuck_count}/5")
+                    
+                    if self.stuck_count >= 5:
+                        print(f"[DEBUG] Player stuck! Moving randomly to unstuck")
+                        self.nav_controller.move_randomly()
+                        self.original_player_coords = self.player_coords  # Reset after unstucking
                         self.stuck_count = 0
-                        self.stuck_check_coords = None
                 else:
-                    self.stuck_check_coords = self.player_coords
-                    self.stuck_count = 1
-                
+                    self.stuck_count = 0
+
                 # Move towards target
                 if self.nav_controller.move_to_target(self.player_coords, self.target_block_coords):
                     print("[DEBUG] Reached target, transitioning to MINING")
-                    self.lock.acquire()
-                    self.state = BotState.MINING
-                    self.stuck_check_coords = None
-                    self.stuck_count = 0
-                    self.lock.release()
+                    self.change_state(BotState.MINING, initial_move_coords=None)
                     continue
+                
+                
             
             # Small sleep to prevent busy-waiting
             sleep(0.01)

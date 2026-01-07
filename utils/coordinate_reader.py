@@ -10,16 +10,14 @@ pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tessera
 class CoordinateReader:
     """Handles reading coordinates from F3 debug screen using OCR"""
     
-    def __init__(self):
-        self.max_coord_diff = 10000  # Maximum allowed coordinate change
     
     def extract_numbers_only(self, text):
-        """Extract numbers from OCR text, handling minus signs and misread characters"""
+        """Extract numbers from OCR text, handling minus signs"""
         
         coords_with_pos = []
         seen_positions = set()
         
-        # Pattern for minus signs (with possible misread letters)
+        # Pattern for negative numbers
         minus_pattern = r'-\s*[A-Za-z]*\s*(\d+)'
         for match in re.finditer(minus_pattern, text):
             if match.start() not in seen_positions:
@@ -47,7 +45,7 @@ class CoordinateReader:
             # Remove commas and replace common OCR mistakes
             text = text.replace(',', '').replace('.', '')
             text = text.replace('S', '5').replace('s', '5')
-            text = text.replace('Q', '0')
+            text = text.replace('Q', '0').replace('O', '0')
             
             print(f"[DEBUG] OCR Text: {text.strip()}")
             coords = self.extract_numbers_only(text)
@@ -95,8 +93,8 @@ class CoordinateReader:
             # RIGHT side for player block coordinates
             y_right = int(height * 0.034)
             h_right = int(height * 0.035)
-            x_right = int(width * 0.80)
-            w_right = int(width * 0.195)
+            x_right = int(width * 0.6)
+            w_right = int(width * 0.399)
             
             # Crop the regions
             crop_left = thresh[y_left:y_left+h_left, x_left:x_left+w_left]
@@ -126,12 +124,12 @@ class CoordinateReader:
             traceback.print_exc()
             return None, None
     
-    def coords_are_reasonable(self, new_coords, old_coords):
-        """Check if new coordinates are reasonable compared to old ones"""
-        if new_coords is None or old_coords is None:
-            return True
+    def coords_are_reasonable(self, current_coords, previous_coords, max_diff=10000):
+        """Check if the change in coordinates is within reasonable limits"""
+        if current_coords is None or previous_coords is None:
+            return False
         
         for i in range(3):
-            if abs(new_coords[i] - old_coords[i]) > self.max_coord_diff:
+            if abs(current_coords[i] - previous_coords[i]) > max_diff:
                 return False
         return True

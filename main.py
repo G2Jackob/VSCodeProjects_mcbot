@@ -1,7 +1,7 @@
 import cv2 as cv
 import os
 from time import time, sleep
-from windowcapture import WindowCapture
+from window_capture import WindowCapture
 from detection import Detection
 from bot_controller import McBot, BotState
 
@@ -19,13 +19,6 @@ bot = McBot((wincap.offset_x, wincap.offset_y), (wincap.w, wincap.h))
 wincap.start()
 detector.start()
 bot.start()
-
-BotState.NAMES = {
-    0: "INITIALIZING",
-    1: "SEARCHING",
-    2: "MOVING",
-    3: "MINING"
-}
 
 loop_time = time()
 frame_count = 0

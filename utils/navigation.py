@@ -1,6 +1,8 @@
 import pydirectinput
 from time import sleep
 import random
+import cv2 as cv
+import numpy as np
 
 class TargetSelector:
     """Handles target selection and crosshair movement"""
@@ -14,12 +16,8 @@ class TargetSelector:
     def get_best_target(self, targets):
         """
         Find the best target based on confidence, size, and distance
-        
         Args:
             targets: List of (x, y, confidence, size) tuples
-            player_coords: Optional player coordinates for distance calculation
-            target_block_coords: Optional target block coordinates for distance calculation
-        
         Returns:
             (x, y) tuple of best target position, or None if no targets
         """
@@ -39,7 +37,7 @@ class TargetSelector:
             dy = y - self.center_y
             distance_from_center = (dx**2 + dy**2)**0.5
             
-            # Distance score (prefer targets closer to center, max distance ~800px)
+            # Distance score (prefer targets closer to center, max distance ~500px)
             distance_score = max(0, 500 - distance_from_center)
             
             # Combine scores: 40% base + 60% distance
@@ -138,15 +136,21 @@ class NavigationController:
         return False
     
     @staticmethod
-    def check_if_stuck(initial_coords, current_coords):
+    def check_if_stuck(initial_coords, current_coords, saved_screenshot, current_screenshot):
         """
-        Check if player is stuck by comparing positions
+        Check if player is stuck by comparing positions and screenshots
         
         Returns:
             True if stuck, False if moving
         """
         if initial_coords is None or current_coords is None:
             return False
+        
+        # Compare screenshots if both are provided
+        if saved_screenshot is not None and current_screenshot is not None:
+            diff = cv.absdiff(saved_screenshot, current_screenshot)
+            mse = np.mean(diff)
+            return mse < 1.0
         
         # Calculate how far we moved (only X and Z, ignore Y)
         dx = current_coords[0] - initial_coords[0]
