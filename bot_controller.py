@@ -42,7 +42,7 @@ class McBot:
         self.player_coords = None
         self.target_block_coords = None
         self.target_distance = None
-        self.expected_target_coords = None  # Expected coords when entering MOVING state
+        self.expected_target_coords = None
         
         # Timers
         self.searching_start_time = None
@@ -124,7 +124,7 @@ class McBot:
         )
     
     def change_state(self, new_state, **kwargs):
-        """Helper method to change bot state and optionally clear variables
+        """Helper method to change bot state and optionally change variables
         
         Args:
             new_state: The state to transition to
@@ -186,7 +186,8 @@ class McBot:
                     # Save the target we're locking onto
                     if self.current_target is None and self.targets:
                         self.current_target = self.target_selector.get_best_target(self.targets)
-                    self.change_state(BotState.MOVING, searching_start_time=None, expected_target_coords=self.target_block_coords, previous_distance=None, initial_move_coords=None)
+                    expected_target_coords=self.target_block_coords
+                    self.change_state(BotState.MOVING, searching_start_time=None, previous_distance=None, initial_move_coords=None)
                     sleep(0.2)
             
             elif self.state == BotState.MINING:
@@ -205,23 +206,20 @@ class McBot:
             elif self.state == BotState.MOVING:
 
                 saved_screenshot = self.screenshot
-                # Show F3 debug info
                 pydirectinput.press('F3')
-                sleep(0.3)  # Reduced from 1.0s to 0.3s for faster checks
-                  # Store the original coordinates
+                sleep(0.3)
+                # Store the original coordinates
                 original_target_coords = self.target_block_coords
                 original_player_coords = self.player_coords
                 # Read coordinates from current screenshot
                 if self.screenshot is not None:
                     self.read_f3_coordinates(self.screenshot)
                 
-                # Hide F3 debug info
                 pydirectinput.press('F3')
-                sleep(0.1)  # Small delay after hiding F3
+                sleep(0.1)
                 
-                # Check if we're still looking at the same target
+                # Check if we're still looking at the same target if not go to searching
                 if self.target_block_coords is not None and self.expected_target_coords is not None:
-                    # Debug output
                     print(f"[DEBUG] Checking target coords - Expected: {self.expected_target_coords}, Current: {self.target_block_coords}")
                     
                     if self.target_block_coords != self.expected_target_coords:
@@ -238,7 +236,7 @@ class McBot:
                     self.ocr_fail_count += 1
                     print(f"[DEBUG] OCR failed to read coordinates (Target: {self.target_block_coords}, Player: {self.player_coords}), fail count: {self.ocr_fail_count}")
                 else:
-                    # Calculate distance to check if OCR result is reasonable
+                    # Calculate distance from OCR 
                     dx = self.target_block_coords[0] - self.player_coords[0]
                     dz = self.target_block_coords[2] - self.player_coords[2]
                     distance = (dx**2 + dz**2)**0.5
@@ -249,15 +247,11 @@ class McBot:
                         print(f"[DEBUG] Distance too large ({distance:.2f} blocks), fail count: {self.ocr_fail_count}")
                 
                 # Handle OCR failures
-                if self.ocr_fail_count > 0:
-                    # After consecutive failures, move randomly
-                    if self.ocr_fail_count >= 3:
-                        print(f"[DEBUG] {self.ocr_fail_count} OCR failures in a row, moving randomly to change view")
-                        self.nav_controller.move_randomly()
-                        self.ocr_fail_count = 0
-                                    
-                # OCR succeeded, reset fail counter
-                self.ocr_fail_count = 0
+                if self.ocr_fail_count >= 3:
+                    # After 3 consecutive failures, move randomly
+                    print(f"[DEBUG] {self.ocr_fail_count} OCR failures in a row, moving randomly to change view")
+                    self.nav_controller.move_randomly()
+                    self.ocr_fail_count = 0
                 
                 # Check if we passed the target (distance increased)
                 if self.previous_distance is not None:
@@ -268,7 +262,6 @@ class McBot:
                         sleep(0.1)
                         continue
                 
-                # Update previous distance
                 self.previous_distance = distance
                 
                 if self.nav_controller.check_if_stuck(original_player_coords, self.player_coords, saved_screenshot, self.screenshot):
@@ -278,7 +271,7 @@ class McBot:
                     if self.stuck_count >= 5:
                         print(f"[DEBUG] Player stuck! Moving randomly to unstuck")
                         self.nav_controller.move_randomly()
-                        self.original_player_coords = self.player_coords  # Reset after unstucking
+                        self.original_player_coords = self.player_coords
                         self.stuck_count = 0
                 else:
                     self.stuck_count = 0
@@ -288,8 +281,4 @@ class McBot:
                     print("[DEBUG] Reached target, transitioning to MINING")
                     self.change_state(BotState.MINING, initial_move_coords=None)
                     continue
-                
-                
-            
-            # Small sleep to prevent busy-waiting
             sleep(0.01)

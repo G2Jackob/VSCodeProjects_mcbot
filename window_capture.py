@@ -4,7 +4,7 @@ import cv2 as cv
 from threading import Thread, Lock
 import ctypes
 
-# Set DPI awareness to prevent black screen issues
+# Set DPI awareness
 ctypes.windll.shcore.SetProcessDpiAwareness(2)
 
 class WindowCapture:
@@ -33,12 +33,14 @@ class WindowCapture:
             if not self.hwnd:
                 raise Exception(f"Window '{window_name}' not found!")
         
-        # Get window rect
+        # Get window rectangle
         window_rect = win32gui.GetWindowRect(self.hwnd)
         client_rect = win32gui.GetClientRect(self.hwnd)
         
         self.w = client_rect[2]
         self.h = client_rect[3]
+
+        print(f"[DEBUG] Window found: {window_name} ({self.w}x{self.h})")
         
         # Calculate client area offset within window
         border_width = ((window_rect[2] - window_rect[0]) - self.w) // 2
@@ -51,7 +53,6 @@ class WindowCapture:
         self.offset_y = window_rect[1] + title_height
 
     def get_screenshot(self):
-        # Use PrintWindow for hardware-accelerated windows
         wDC = win32gui.GetWindowDC(self.hwnd)
         dcObj = win32ui.CreateDCFromHandle(wDC)
         cDC = dcObj.CreateCompatibleDC()
@@ -59,7 +60,7 @@ class WindowCapture:
         dataBitMap.CreateCompatibleBitmap(dcObj, self.w, self.h)
         cDC.SelectObject(dataBitMap)
         
-        # PrintWindow works with hardware acceleration
+        # PrintWindow for computers with hardware acceleration
         ctypes.windll.user32.PrintWindow(self.hwnd, cDC.GetSafeHdc(), 3)
 
         # Convert to numpy array

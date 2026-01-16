@@ -4,7 +4,7 @@ import numpy as np
 import re
 import traceback
 
-# Configure tesseract path
+#tesseract path
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 class CoordinateReader:
@@ -37,7 +37,7 @@ class CoordinateReader:
     
     def get_coords_from_ocr(self, crop_image):
         """Read OCR once and return coordinate values"""
-        custom_config = r'--oem 1 --psm 7 '
+        custom_config = r'--oem 1 --psm 7'
         
         try:
             text = pytesseract.image_to_string(crop_image, lang='mc3', config=custom_config)
@@ -63,25 +63,14 @@ class CoordinateReader:
         """Read player and targeted block coordinates from F3 debug screen"""
         try:
             height, width = screenshot.shape[:2]
-            
+           
             # Convert BGR to HSV for better color isolation
             hsv_image = cv.cvtColor(screenshot, cv.COLOR_BGR2HSV)
-            
             # Define color range for white/light gray text
-            color_lower = np.array([0, 0, 200])
-            color_upper = np.array([180, 30, 255])
-            
-            # Create mask to isolate the text
-            mask = cv.inRange(hsv_image, color_lower, color_upper)
-            
+            color_lower = np.array([0, 0, 200], dtype=np.uint8)
+            color_upper = np.array([180, 30, 255], dtype=np.uint8)
             # Apply mask to get only the text
-            result = cv.bitwise_and(screenshot, screenshot, mask=mask)
-            
-            # Convert to grayscale
-            gray = cv.cvtColor(result, cv.COLOR_BGR2GRAY)
-            
-            # Apply threshold
-            _, thresh = cv.threshold(gray, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU)
+            mask = cv.inRange(hsv_image, color_lower, color_upper)
             
             # Define crop regions
             # LEFT side for targeted block coordinates
@@ -97,21 +86,13 @@ class CoordinateReader:
             w_right = int(width * 0.399)
             
             # Crop the regions
-            crop_left = thresh[y_left:y_left+h_left, x_left:x_left+w_left]
-            crop_right = thresh[y_right:y_right+h_right, x_right:x_right+w_right]
+            crop_left = mask[y_left:y_left+h_left, x_left:x_left+w_left]
+            crop_right = mask[y_right:y_right+h_right, x_right:x_right+w_right]
             
             # Save debug images
             cv.imwrite('other/crop_left.png', crop_left)
             cv.imwrite('other/crop_right.png', crop_right)
             
-            # Enhance images for better OCR
-            crop_left = cv.bitwise_not(crop_left)
-            crop_right = cv.bitwise_not(crop_right)
-            
-            # Apply morphological operations
-            kernel = np.ones((2, 2), np.uint8)
-            crop_left = cv.morphologyEx(crop_left, cv.MORPH_CLOSE, kernel)
-            crop_right = cv.morphologyEx(crop_right, cv.MORPH_CLOSE, kernel)
             
             # Read coordinates
             player_coords = self.get_coords_from_ocr(crop_right)

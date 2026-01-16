@@ -2,7 +2,7 @@
 SETUP:
 + instal requirements
 + add custom OCR Tesseract model, model for OCR is mc3.traineddata, to C:\Program Files\Tesseract-OCR\tessdata
-+ MC version 1.21.9+, GUI scale 3, custom F3 output[F3+F6] (everything off, except looking_at_block and player_position - In F3)
++ MC version 1.21.9+, resolution at least [1450x850], GUI scale 3, custom F3 output[F3+F6] (everything off, except looking_at_block and player_position - In F3)
 + OPTIONAL (weather/day_cycle false, time set noon)
 + OPTIONAL (Worlds form MC_TEST_WORLDS.zip)
 
@@ -10,7 +10,4 @@ To run:
 run main.py
 
 press Q on debug window to stop.
-
-Target selector: Odering by best = (confidence * size *0,01) , then (0,6 * distance[range 0-500] + 0,4 * best)
-
 

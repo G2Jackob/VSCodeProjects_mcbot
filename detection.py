@@ -35,6 +35,7 @@ class Detection:
                 try:
                    
                     # Get results from YOLO model
+                    #classes 1,3,5,7,9,11 are different types of wood logs
                     results = self.model(self.screenshot, show=False, conf=0.6, line_width=1, classes=[1,3,5,7,9,11], verbose=False)[0]
                     
                     self.lock.acquire()
@@ -77,11 +78,9 @@ class Detection:
                 size = width * height
                 
                 # Calculate bottom-center point (center X, 10 pixels above bottom Y)
-                # This will make the bot aim slightly above the bottom of the tree
                 center_x = int((x1 + x2) / 2)
-                bottom_y = int(y2) - 10  # 10 pixels above the bottom of the bounding box
+                bottom_y = int(y2) - 10
                 
-                # Add bottom-center point with confidence and size to list
                 click_points.append((center_x, bottom_y, conf, size))
             
             return click_points

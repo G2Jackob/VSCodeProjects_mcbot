@@ -4,7 +4,7 @@ import numpy as np
 import pydirectinput
 from time import sleep, time
 
-# Configure tesseract path
+#tesseract path
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 class TreeMiner:
@@ -37,8 +37,8 @@ class TreeMiner:
             cv.imwrite('other/tooltip_mask.png', mask)
             
             # OCR on the filtered area
-            custom_config = r'--oem 1 --psm 6 -l mc3'
-            text = pytesseract.image_to_string(mask, config=custom_config)
+            custom_config = r'--oem 1 --psm 6'
+            text = pytesseract.image_to_string(mask, lang='mc3', config=custom_config)
             text = text.strip().lower()
             
             # Look for wood-related keywords
@@ -82,14 +82,13 @@ class TreeMiner:
         """
         print("[DEBUG] Starting mining sequence")
         
-        # Press F3 to show debug info
         pydirectinput.press('F3')
         sleep(1.0)
         
         blocks_mined = 0
         last_tooltip_time = time()
         previous_target_coords = None
-        total_upward_movement = 0  # Track total mouse movement to return later
+        total_upward_movement = 0 
         
         # Read initial target block coordinates
         screenshot = get_screenshot_func()
@@ -132,7 +131,7 @@ class TreeMiner:
                         blocks_mined += 1
                         
                         # Move up for next block
-                        movement = max(15, 150 - (blocks_mined * 15))
+                        movement = max(15, 150 - (blocks_mined * 20))
                         print(f"[DEBUG] Moving up {movement}px to find next block")
                         pydirectinput.moveRel(0, -movement, relative=True)
                         total_upward_movement += movement
@@ -142,7 +141,7 @@ class TreeMiner:
 
                     else:
                         # Coords not correct - move again
-                        movement = max(15, 150 - (blocks_mined * 15))
+                        movement = max(15, 150 - (blocks_mined * 20))
                         print(f"[DEBUG] Coords not correct, moving up {movement}px again")
                         pydirectinput.moveRel(0, -movement, relative=True)
                         total_upward_movement += movement
@@ -154,7 +153,7 @@ class TreeMiner:
                         break
                     
                     # Move up
-                    movement = 25 if blocks_mined == 0 else max(15, 150 - (blocks_mined * 15))
+                    movement = 25 if blocks_mined == 0 else max(15, 150 - (blocks_mined * 20))
                     print(f"[DEBUG] No tooltip, moving up {movement}px")
                     pydirectinput.moveRel(0, -movement, relative=True)
                     total_upward_movement += movement
@@ -163,7 +162,6 @@ class TreeMiner:
                 print("[DEBUG] No screenshot available")
                 sleep(0.1)
         
-        # Hide F3
         pydirectinput.press('F3')
         sleep(0.3)
         

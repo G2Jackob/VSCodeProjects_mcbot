@@ -8,10 +8,13 @@ from bot_controller import McBot, BotState
 
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
-wincap = WindowCapture('Minecraft 1.21.10 - Singleplayer') #Name of the window to capture
+
+#Name of the window to capture
+wincap = WindowCapture('Minecraft 1.21.10 - Singleplayer') 
 
 DEBUG = True
 
+#Name of the YOLO model to use
 detector = Detection('other/tree_detect_yolo.pt')
 detector.set_screen_center(wincap.w // 2, wincap.h // 2)
 bot = McBot((wincap.offset_x, wincap.offset_y), (wincap.w, wincap.h))
@@ -52,6 +55,7 @@ while True:
     if DEBUG:
         if detector.debug_image is not None and detector.results is not None:
             try:
+                # Display bot state
                 debug_image = detector.debug_image.copy()
                 state_text = f"Bot State: {BotState.NAMES.get(bot.state, str(bot.state))}"
                 cv.putText(
@@ -111,12 +115,13 @@ while True:
                 
                 # Show debug info
                 cv.imshow('Minecraft Bot', debug_image)
-                #print(f"[DEBUG] Found targets: {len(targets)}")
             except Exception as e:
                 print(f"[DEBUG] Display error: {str(e)}")
-    #print('FPS: {}'.format(1/(time() - loop_time + 0.0001)))
+
     loop_time = time()
     key = cv.waitKey(1)
+
+    #press 'q' to quit
     if key == ord('q'): 
         print("[DEBUG] Q pressed - stopping all threads...")
         wincap.stop()
