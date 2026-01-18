@@ -12,7 +12,7 @@ class TreeMiner:
     
     def __init__(self):
         self.tooltip_timeout = 3.5
-        self.max_blocks = 20
+        self.max_blocks = 12
     
     def detect_wood_tooltip(self, screenshot):
         """Detect wood tooltip in screenshot using OCR"""
