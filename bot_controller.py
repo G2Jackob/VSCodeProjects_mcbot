@@ -97,9 +97,7 @@ class McBot:
                 print(f"[DEBUG] Player Block Coordinates: {self.player_coords}")
             else:
                 print(f"[DEBUG] Ignoring invalid player coords: {player_coords} (previous: {self.player_coords})")
-                pydirectinput.keyDown('w')
-                sleep(0.2)
-                pydirectinput.keyUp('w')
+                
         
         # Update target coordinates if valid
         if target_coords is not None:
@@ -110,9 +108,7 @@ class McBot:
                 print(f"[DEBUG] Ignoring invalid target coords: {target_coords} (previous: {self.target_block_coords})")
                 print(f"[DEBUG] Clearing target and going back to searching due to invalid coordinates")
                 self.target_block_coords = None
-                pydirectinput.keyDown('w')
-                sleep(0.2)
-                pydirectinput.keyUp('w')
+                
         
         return self.player_coords is not None or self.target_block_coords is not None
     
@@ -186,7 +182,6 @@ class McBot:
                     # Save the target we're locking onto
                     if self.current_target is None and self.targets:
                         self.current_target = self.target_selector.get_best_target(self.targets)
-                    expected_target_coords=self.target_block_coords
                     self.change_state(BotState.MOVING, searching_start_time=None, previous_distance=None, initial_move_coords=None)
                     sleep(0.2)
             
@@ -209,11 +204,14 @@ class McBot:
                 pydirectinput.press('F3')
                 sleep(0.3)
                 # Store the original coordinates
-                original_target_coords = self.target_block_coords
                 original_player_coords = self.player_coords
+
                 # Read coordinates from current screenshot
                 if self.screenshot is not None:
                     self.read_f3_coordinates(self.screenshot)
+                    
+                if self.expected_target_coords is None:
+                    self.expected_target_coords = self.target_block_coords
                 
                 pydirectinput.press('F3')
                 sleep(0.1)

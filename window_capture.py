@@ -60,7 +60,7 @@ class WindowCapture:
         dataBitMap.CreateCompatibleBitmap(dcObj, self.w, self.h)
         cDC.SelectObject(dataBitMap)
         
-        # PrintWindow for computers with hardware acceleration
+        # Get a screenshot, PrintWindow works with hardware acceleration
         ctypes.windll.user32.PrintWindow(self.hwnd, cDC.GetSafeHdc(), 3)
 
         # Convert to numpy array

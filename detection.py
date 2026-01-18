@@ -4,7 +4,6 @@ from ultralytics import YOLO
 class Detection:
     stopped = True
     lock = None
-    rectangles = []
     model = None
     screenshot = None
     debug_image = None
@@ -35,7 +34,7 @@ class Detection:
                 try:
                    
                     # Get results from YOLO model
-                    #classes 1,3,5,7,9,11 are different types of wood logs
+                    # Classes 1,3,5,7,9,11 are different types of wood logs
                     results = self.model(self.screenshot, show=False, conf=0.6, line_width=1, classes=[1,3,5,7,9,11], verbose=False)[0]
                     
                     self.lock.acquire()
@@ -65,7 +64,7 @@ class Detection:
             # Get detection data
             boxes = results.boxes.xyxy.tolist()
             classes = results.boxes.cls.tolist()
-            confidences = results.boxes.conf.tolist()  # Get confidence scores
+            confidences = results.boxes.conf.tolist()
             
             # Process each detection and return list of (x, y, confidence, size) tuples
             click_points = []
