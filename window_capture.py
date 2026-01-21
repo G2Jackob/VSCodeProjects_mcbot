@@ -8,7 +8,7 @@ import ctypes
 ctypes.windll.shcore.SetProcessDpiAwareness(2)
 
 class WindowCapture:
-
+    """Class for capturing screenshots of a window"""
     stopped = True
     lock = None
     screenshot = None
@@ -53,6 +53,7 @@ class WindowCapture:
         self.offset_y = window_rect[1] + title_height
 
     def get_screenshot(self):
+        """Capture a screenshot of the window"""
         wDC = win32gui.GetWindowDC(self.hwnd)
         dcObj = win32ui.CreateDCFromHandle(wDC)
         cDC = dcObj.CreateCompatibleDC()
@@ -80,17 +81,21 @@ class WindowCapture:
         return img
     
     def get_screen_position(self, pos):
+        """Convert window-relative position to screen position"""
         return (pos[0] + self.offset_x, pos[1] + self.offset_y)
     
     def start(self):
+        """Start the window capture thread"""
         self.stopped = False
         t = Thread(target=self.run)
         t.start()
     
     def stop(self):
+        """Stop the window capture thread"""
         self.stopped = True
 
     def run(self):
+        """Run the window capture loop"""
         while not self.stopped:
            screenshot = self.get_screenshot()
            self.lock.acquire()

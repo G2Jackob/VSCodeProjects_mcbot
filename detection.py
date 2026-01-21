@@ -2,6 +2,7 @@ from threading import Thread, Lock
 from ultralytics import YOLO
 
 class Detection:
+    """Detection class using YOLO model"""
     stopped = True
     lock = None
     model = None
@@ -16,19 +17,23 @@ class Detection:
         print(f"[DEBUG] YOLO model loaded: {model_file_path}")
 
     def update(self, screenshot):
+        """Update the current screenshot"""
         self.lock.acquire()
         self.screenshot = screenshot
         self.lock.release()
        
     def start(self):
+        """Start the detection thread"""
         self.stopped = False
         t = Thread(target=self.run)
         t.start()
     
     def stop(self):
+        """Stop the detection thread"""
         self.stopped = True
 
     def run(self):
+        """Run the detection loop"""
         while not self.stopped:
             if self.screenshot is not None:
                 try:
